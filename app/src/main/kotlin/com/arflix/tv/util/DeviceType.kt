@@ -20,6 +20,13 @@ enum class DeviceType {
 
 val LocalDeviceType = compositionLocalOf { DeviceType.TV }
 
+/** True if the physical device has a touchscreen. Use this to decide navigation style. */
+val LocalHasTouchScreen = compositionLocalOf { true }
+
+fun deviceHasTouchScreen(context: Context): Boolean {
+    return context.packageManager.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
+}
+
 /** Key for the user's UI mode override in settingsDataStore */
 val DEVICE_MODE_OVERRIDE_KEY = stringPreferencesKey("device_mode_override")
 
@@ -42,6 +49,12 @@ fun detectDeviceType(context: Context): DeviceType {
     if (packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
         packageManager.hasSystemFeature(PackageManager.FEATURE_TELEVISION)
     ) {
+        return DeviceType.TV
+    }
+
+    // No touchscreen = it's a TV even if Android thinks otherwise
+    // (Chinese TVs, projectors, Fire Stick sideloads, etc.)
+    if (!packageManager.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)) {
         return DeviceType.TV
     }
 
