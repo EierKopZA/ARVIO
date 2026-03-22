@@ -40,7 +40,6 @@ object OkHttpProvider {
     private const val TAG = "AppDns"
     /** 50 MB disk cache for API responses (TMDB metadata, Trakt data, etc.) */
     private const val HTTP_CACHE_SIZE = 50L * 1024L * 1024L
-    private const val IMAGE_HTTP_CACHE_SIZE = 100L * 1024L * 1024L
     private const val IMAGE_DISK_CACHE_SIZE = 48L * 1024L * 1024L
     private const val CLOUDFLARE_DOH_HOST = "cloudflare-dns.com"
     private const val CLOUDFLARE_DOH_URL = "https://cloudflare-dns.com/dns-query"
@@ -73,8 +72,18 @@ object OkHttpProvider {
     private var selectedDnsProvider: AppDnsProvider = AppDnsProvider.SYSTEM
 
     private val dnsScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val clientLock = Any()
 
     private val appConnectionPool = ConnectionPool(32, 5, TimeUnit.MINUTES)
+
+    @Volatile
+    private var appClient: OkHttpClient? = null
+
+    @Volatile
+    private var appHttpCache: Cache? = null
+
+    @Volatile
+    private var coilSharedClient: OkHttpClient? = null
 
     private val systemDns: Dns by lazy {
         preferIpv4ForTmdb(Dns.SYSTEM)
@@ -135,35 +144,48 @@ object OkHttpProvider {
     }
 
     val client: OkHttpClient
-        get() {
-            val loggingInterceptor = HttpLoggingInterceptor().apply {
-                level = if (BuildConfig.DEBUG) {
-                    HttpLoggingInterceptor.Level.BASIC
-                } else {
-                    HttpLoggingInterceptor.Level.NONE
-                }
-            }
-
-            val builder = OkHttpClient.Builder()
-                // Direct API calls — no Supabase edge function proxy.
-                // TMDB/Trakt keys are passed as query params / headers by Retrofit.
-                .addInterceptor(apiDnsLoggingInterceptor)
-                .addInterceptor(loggingInterceptor)
-                .connectTimeout(30, TimeUnit.SECONDS)
-                .readTimeout(30, TimeUnit.SECONDS)
-                .writeTimeout(30, TimeUnit.SECONDS)
-                .connectionPool(appConnectionPool)
-                .dns(dns)
-                .retryOnConnectionFailure(true)
-
-            // Attach disk cache if context was initialized
-            appContext?.let { ctx ->
-                val cacheDir = File(ctx.cacheDir, "http_cache")
-                builder.cache(Cache(cacheDir, HTTP_CACHE_SIZE))
-            }
-
-            return builder.build()
+        get() = appClient ?: synchronized(clientLock) {
+            appClient ?: buildAppClient().also { appClient = it }
         }
+
+    private fun buildAppClient(): OkHttpClient {
+        val loggingInterceptor = HttpLoggingInterceptor().apply {
+            level = if (BuildConfig.DEBUG) {
+                HttpLoggingInterceptor.Level.BASIC
+            } else {
+                HttpLoggingInterceptor.Level.NONE
+            }
+        }
+
+        val builder = OkHttpClient.Builder()
+            // Direct API calls — no Supabase edge function proxy.
+            // TMDB/Trakt keys are passed as query params / headers by Retrofit.
+            .addInterceptor(loggingInterceptor)
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .connectionPool(appConnectionPool)
+            .dns(dns)
+            .retryOnConnectionFailure(true)
+
+        if (BuildConfig.DEBUG) {
+            builder.addInterceptor(apiDnsLoggingInterceptor)
+        }
+
+        appContext?.let { ctx ->
+            builder.cache(getOrCreateHttpCache(ctx))
+        }
+
+        return builder.build()
+    }
+
+    private fun getOrCreateHttpCache(context: Context): Cache {
+        return appHttpCache ?: synchronized(clientLock) {
+            appHttpCache ?: Cache(File(context.cacheDir, "http_cache"), HTTP_CACHE_SIZE).also {
+                appHttpCache = it
+            }
+        }
+    }
 
     private val cloudflareBootstrapHosts: List<InetAddress> by lazy {
         listOf(
@@ -270,20 +292,20 @@ object OkHttpProvider {
     }
 
     val coilClient: OkHttpClient
-        get() {
-            val builder = client.newBuilder()
-            builder.interceptors().remove(apiDnsLoggingInterceptor)
-            builder.dns(dns)
-            return builder.build()
+        get() = coilSharedClient ?: synchronized(clientLock) {
+            coilSharedClient ?: buildCoilClient().also { coilSharedClient = it }
         }
 
-    fun createCoilImageLoader(context: Context): ImageLoader {
-        val imageHttpClient = coilClient.newBuilder()
-            .cache(Cache(File(context.cacheDir, "image_http_cache"), IMAGE_HTTP_CACHE_SIZE))
-            .build()
+    private fun buildCoilClient(): OkHttpClient {
+        val builder = client.newBuilder()
+        builder.interceptors().remove(apiDnsLoggingInterceptor)
+        builder.dns(dns)
+        return builder.build()
+    }
 
+    fun createCoilImageLoader(context: Context): ImageLoader {
         return ImageLoader.Builder(context)
-            .okHttpClient(imageHttpClient)
+            .okHttpClient(coilClient)
             .memoryCache {
                 MemoryCache.Builder(context)
                     .maxSizePercent(0.15)
