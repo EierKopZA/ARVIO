@@ -61,8 +61,8 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
         appScope.launch {
             runCatching { profileManager.initialize() }
             if (!authRepository.getCurrentUserId().isNullOrBlank()) {
-                // Keep cold-start smooth: perform first cloud pull after startup settles.
-                delay(12_000L)
+                // Pull cloud state shortly after startup for faster cross-device sync.
+                delay(3_000L)
                 runCatching { cloudSyncRepository.pullFromCloud() }
             }
         }

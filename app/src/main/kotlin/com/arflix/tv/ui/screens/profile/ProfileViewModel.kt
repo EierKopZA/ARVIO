@@ -109,9 +109,10 @@ class ProfileViewModel @Inject constructor(
             profileRepository.setActiveProfile(profile.id)
         }
 
-        // Pull latest cloud state shortly after entering Home so profile selection stays fast.
+        // Push current state before switching, then pull cloud state for the new profile.
         viewModelScope.launch(Dispatchers.IO) {
-            delay(4_000L)
+            runCatching { cloudSyncRepository.pushToCloud() }
+            delay(1_000L)
             if (profileRepository.getActiveProfileId() != profile.id) return@launch
             runCatching { cloudSyncRepository.pullFromCloud() }
         }

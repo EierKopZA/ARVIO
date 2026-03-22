@@ -47,6 +47,7 @@ class CloudSyncRepository @Inject constructor(
     data class CloudProfileSettings(
         val defaultSubtitle: String = "Off",
         val defaultAudioLanguage: String = "Auto (Original)",
+        val contentLanguage: String = "en-US",
         val cardLayoutMode: String = CARD_LAYOUT_MODE_LANDSCAPE,
         val frameRateMatchingMode: String = "Off",
         val autoPlayNext: Boolean = true,
@@ -57,6 +58,8 @@ class CloudSyncRepository @Inject constructor(
 
     // ── DataStore key helpers ──
 
+    private fun contentLanguageKeyFor(profileId: String) =
+        profileManager.profileStringKeyFor(profileId, "content_language")
     private fun defaultSubtitleKeyFor(profileId: String) =
         profileManager.profileStringKeyFor(profileId, "default_subtitle")
     private fun defaultAudioLanguageKeyFor(profileId: String) =
@@ -126,6 +129,7 @@ class CloudSyncRepository @Inject constructor(
                     CloudProfileSettings(
                         defaultSubtitle = prefs[defaultSubtitleKeyFor(profile.id)] ?: "Off",
                         defaultAudioLanguage = prefs[defaultAudioLanguageKeyFor(profile.id)] ?: "Auto (Original)",
+                        contentLanguage = prefs[contentLanguageKeyFor(profile.id)] ?: "en-US",
                         cardLayoutMode = normalizeCardLayoutMode(
                             prefs[cardLayoutModeKeyFor(profile.id)] ?: CARD_LAYOUT_MODE_LANDSCAPE
                         ),
@@ -336,6 +340,7 @@ class CloudSyncRepository @Inject constructor(
                     settingsByProfile.forEach { (profileId, state) ->
                         prefs[defaultSubtitleKeyFor(profileId)] = state.defaultSubtitle
                         prefs[defaultAudioLanguageKeyFor(profileId)] = state.defaultAudioLanguage
+                        prefs[contentLanguageKeyFor(profileId)] = state.contentLanguage
                         prefs[cardLayoutModeKeyFor(profileId)] = normalizeCardLayoutMode(state.cardLayoutMode)
                         prefs[frameRateMatchingModeKeyFor(profileId)] = normalizeFrameRateMode(state.frameRateMatchingMode)
                         prefs[autoPlayNextKeyFor(profileId)] = state.autoPlayNext
