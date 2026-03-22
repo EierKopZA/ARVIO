@@ -171,8 +171,6 @@ fun SettingsScreen(
     var audioLanguagePickerIndex by remember { mutableIntStateOf(0) }
     var showDnsProviderPicker by remember { mutableStateOf(false) }
     var dnsProviderPickerIndex by remember { mutableIntStateOf(0) }
-    var showDnsRestartConfirm by remember { mutableStateOf(false) }
-    var pendingDnsProvider by remember { mutableStateOf("") }
 
     val sections = remember { listOf("general", "iptv", "catalogs", "addons", "accounts") }
 
@@ -295,7 +293,7 @@ fun SettingsScreen(
             .onPreviewKeyEvent { event ->
                     if (isTouchDevice) return@onPreviewKeyEvent false
                     // BLOCKER FIX: Ignore main screen navigation if modals are open
-                    if (showCustomAddonInput || showSubtitlePicker || showAudioLanguagePicker || showDnsProviderPicker || showDnsRestartConfirm || showIptvInput || showCatalogInput || uiState.showCloudPairDialog || uiState.showCloudEmailPasswordDialog) return@onPreviewKeyEvent false
+                    if (showCustomAddonInput || showSubtitlePicker || showAudioLanguagePicker || showDnsProviderPicker || showIptvInput || showCatalogInput || uiState.showCloudPairDialog || uiState.showCloudEmailPasswordDialog) return@onPreviewKeyEvent false
 
                 if (event.type == KeyEventType.KeyDown) {
                     val currentSection = sections.getOrNull(sectionIndex).orEmpty()
@@ -931,36 +929,16 @@ fun SettingsScreen(
 
         if (showDnsProviderPicker) {
             SubtitlePickerModal(
-                title = "DNS Provider (Auto-Restart)",
+                title = "DNS Provider",
                 options = uiState.dnsProviderOptions,
                 selected = uiState.dnsProvider,
                 focusedIndex = dnsProviderPickerIndex,
                 onFocusChange = { dnsProviderPickerIndex = it },
                 onSelect = {
                     showDnsProviderPicker = false
-                    pendingDnsProvider = it
-                    if (it.equals(uiState.dnsProvider, ignoreCase = true)) {
-                        viewModel.setDnsProvider(it)
-                    } else {
-                        showDnsRestartConfirm = true
-                    }
+                    viewModel.setDnsProvider(it)
                 },
                 onDismiss = { showDnsProviderPicker = false }
-            )
-        }
-
-        if (showDnsRestartConfirm) {
-            DnsRestartConfirmModal(
-                providerLabel = pendingDnsProvider,
-                onConfirm = {
-                    showDnsRestartConfirm = false
-                    viewModel.setDnsProvider(pendingDnsProvider)
-                    pendingDnsProvider = ""
-                },
-                onDismiss = {
-                    showDnsRestartConfirm = false
-                    pendingDnsProvider = ""
-                }
             )
         }
 
@@ -2013,7 +1991,7 @@ private fun GeneralSettings(
         SettingsRow(
             icon = Icons.Default.Language,
             title = "DNS Provider",
-            subtitle = "Resolver for API/image/stream requests. Changing it restarts the app.",
+            subtitle = "Resolver for API/image/stream requests. Changes apply immediately.",
             value = dnsProvider,
             isFocused = focusedIndex == 4,
             onClick = onDnsProviderClick
@@ -3838,142 +3816,3 @@ private fun SubtitlePickerModal(
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun DnsRestartConfirmModal(
-    providerLabel: String,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    var focusedIndex by remember { mutableIntStateOf(1) } // 0 cancel, 1 apply
-    val focusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.6f))
-            .focusRequester(focusRequester)
-            .focusable()
-            .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    when (event.key) {
-                        Key.Back, Key.Escape -> {
-                            onDismiss()
-                            true
-                        }
-                        Key.DirectionLeft -> {
-                            if (focusedIndex > 0) focusedIndex--
-                            true
-                        }
-                        Key.DirectionRight -> {
-                            if (focusedIndex < 1) focusedIndex++
-                            true
-                        }
-                        Key.Enter, Key.DirectionCenter -> {
-                            if (focusedIndex == 0) onDismiss() else onConfirm()
-                            true
-                        }
-                        else -> false
-                    }
-                } else false
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            modifier = Modifier
-                .then(
-                    if (LocalDeviceType.current.isTouchDevice()) Modifier.fillMaxWidth(0.92f).widthIn(max = 560.dp)
-                    else Modifier.width(560.dp)
-                )
-                .background(BackgroundElevated, RoundedCornerShape(16.dp))
-                .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
-                .padding(if (LocalDeviceType.current.isTouchDevice()) 20.dp else 24.dp)
-        ) {
-            Text(
-                text = "Apply DNS Change?",
-                style = ArflixTypography.sectionTitle,
-                color = TextPrimary
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Text(
-                text = "Switch to $providerLabel and restart the app now?",
-                style = ArflixTypography.body,
-                color = TextSecondary
-            )
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                val cancelFocused = focusedIndex == 0
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(
-                            color = if (cancelFocused) Color.White else Color.Black.copy(alpha = 0.82f),
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                        .border(
-                            width = 1.dp,
-                            color = if (cancelFocused) Color.White else Color.White.copy(alpha = 0.14f),
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                        .clickable { onDismiss() }
-                        .padding(vertical = 12.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "Cancel",
-                        style = ArflixTypography.button,
-                        color = if (cancelFocused) Color.Black else Color.White
-                    )
-                }
-
-                val applyFocused = focusedIndex == 1
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(
-                            color = if (applyFocused) Color.White else Color.Black.copy(alpha = 0.82f),
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                        .border(
-                            width = 1.dp,
-                            color = if (applyFocused) Color.White else Color.White.copy(alpha = 0.14f),
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                        .clickable { onConfirm() }
-                        .padding(vertical = 12.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "Apply & Restart",
-                        style = ArflixTypography.button,
-                        color = if (applyFocused) Color.Black else Color.White
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(
-                text = if (LocalDeviceType.current.isTouchDevice()) {
-                    "Tap a button to continue"
-                } else {
-                    "Left/Right to choose • OK to confirm • Back to cancel"
-                },
-                style = ArflixTypography.caption,
-                color = TextSecondary.copy(alpha = 0.56f)
-            )
-        }
-    }
-}
