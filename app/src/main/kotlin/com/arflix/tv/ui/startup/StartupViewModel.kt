@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import coil.ImageLoader
+import coil.imageLoader
 import coil.request.ImageRequest
 import coil.size.Precision
 import com.arflix.tv.data.model.Category
@@ -40,9 +41,12 @@ data class StartupState(
 @OptIn(ExperimentalCoroutinesApi::class)
 class StartupViewModel @Inject constructor(
     private val mediaRepository: MediaRepository,
-    private val imageLoader: ImageLoader,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
+    private val imageLoader: ImageLoader by lazy(LazyThreadSafetyMode.NONE) {
+        context.imageLoader
+    }
+
     private val networkDispatcher = Dispatchers.IO.limitedParallelism(8)
     private val heroLogoPreloadWidth = 300
     private val heroLogoPreloadHeight = 70

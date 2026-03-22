@@ -6,6 +6,7 @@ import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import coil.ImageLoader
+import coil.imageLoader
 import coil.request.ImageRequest
 import coil.size.Precision
 import com.arflix.tv.data.model.Category
@@ -91,9 +92,12 @@ class HomeViewModel @Inject constructor(
     private val watchlistRepository: WatchlistRepository,
     private val cloudSyncRepository: CloudSyncRepository,
     private val launcherContinueWatchingRepository: LauncherContinueWatchingRepository,
-    private val imageLoader: ImageLoader,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
+    private val imageLoader: ImageLoader by lazy(LazyThreadSafetyMode.NONE) {
+        context.imageLoader
+    }
+
     private data class HeroDetailsSnapshot(
         val duration: String,
         val releaseDate: String?,
