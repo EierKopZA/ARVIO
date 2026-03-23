@@ -29,7 +29,6 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -675,9 +674,10 @@ class StreamRepository @Inject constructor(
         type: String,
         imdbId: String,
         season: Int? = null,
-        episode: Int? = null
+        episode: Int? = null,
+        preferredQuality: String = "Any" // Added preferredQuality to cache key
     ): String {
-        return "$profileId|$type|$imdbId|${season ?: 0}|${episode ?: 0}"
+        return "$profileId|$type|$imdbId|${season ?: 0}|${episode ?: 0}|$preferredQuality"
     }
 
     private fun cacheTtlMsFor(result: StreamResult): Long {
@@ -844,7 +844,8 @@ class StreamRepository @Inject constructor(
         imdbId: String,
         title: String = "",
         year: Int? = null,
-        forceRefresh: Boolean = false
+        forceRefresh: Boolean = false,
+        preferredQuality: String = "Any" // Added preferredQuality parameter
     ): StreamResult = withContext(Dispatchers.IO) {
         ensureAddonHealthLoaded()
         val subtitles = mutableListOf<Subtitle>()
@@ -853,7 +854,8 @@ class StreamRepository @Inject constructor(
         val cacheKey = streamCacheKey(
             profileId = profileManager.getProfileIdSync(),
             type = "movie",
-            imdbId = imdbId
+            imdbId = imdbId,
+            preferredQuality = preferredQuality // Added to cache key
         )
         if (!forceRefresh) {
             synchronized(streamResultCache) {
@@ -866,7 +868,10 @@ class StreamRepository @Inject constructor(
 
         val prioritizedAddons = streamAddons.sortedByDescending { getAddonHealthBias(it.id) }
         val streamJobs = prioritizedAddons.map { addon -> async { fetchMovieStreamsFromAddon(addon, imdbId) } }
-        val streams = streamJobs.awaitAll().flatten().toMutableList()
+        var streams = streamJobs.awaitAll().flatten().toMutableList()
+
+        // Filter and sort streams based on preferred quality
+        streams = filterAndSortStreamsByQuality(streams, preferredQuality).toMutableList()
 
         // Keep core source lookup fully addon-driven and non-blocking.
         // IPTV VOD enrichment is appended separately in ViewModels.
@@ -882,7 +887,8 @@ class StreamRepository @Inject constructor(
         imdbId: String,
         title: String = "",
         year: Int? = null,
-        forceRefresh: Boolean = false
+        forceRefresh: Boolean = false,
+        preferredQuality: String = "Any" // Added preferredQuality parameter
     ): Flow<ProgressiveStreamResult> = callbackFlow {
         repositoryScope.launch {
             ensureAddonHealthLoaded()
@@ -891,7 +897,8 @@ class StreamRepository @Inject constructor(
             val cacheKey = streamCacheKey(
                 profileId = profileManager.getProfileIdSync(),
                 type = "movie",
-                imdbId = imdbId
+                imdbId = imdbId,
+                preferredQuality = preferredQuality // Added to cache key
             )
             if (!forceRefresh) {
                 synchronized(streamResultCache) {
@@ -926,13 +933,17 @@ class StreamRepository @Inject constructor(
                                 u.isNotBlank() && !u.startsWith("magnet:", ignoreCase = true)
                             }
                             .distinctBy { "${it.url?.trim().orEmpty()}|${it.source}" }
+                        
+                        // Filter and sort by preferred quality before emitting
+                        val finalStreams = filterAndSortStreamsByQuality(deduped, preferredQuality)
+
                         if (completed == prioritizedAddons.size) {
-                            val finalResult = StreamResult(deduped, emptyList())
+                            val finalResult = StreamResult(finalStreams, emptyList())
                             synchronized(streamResultCache) {
                                 streamResultCache[cacheKey] = CachedStreamResult(finalResult, System.currentTimeMillis())
                             }
                         }
-                        ProgressiveStreamResult(deduped, emptyList(), completed, prioritizedAddons.size, completed == prioritizedAddons.size)
+                        ProgressiveStreamResult(finalStreams, emptyList(), completed, prioritizedAddons.size, completed == prioritizedAddons.size)
                     }
                     trySend(emission)
                     if (emission.isFinal) close()
@@ -1076,7 +1087,8 @@ class StreamRepository @Inject constructor(
         genreIds: List<Int> = emptyList(),
         originalLanguage: String? = null,
         title: String = "",
-        forceRefresh: Boolean = false
+        forceRefresh: Boolean = false,
+        preferredQuality: String = "Any" // Added preferredQuality parameter
     ): StreamResult = withContext(Dispatchers.IO) {
         ensureAddonHealthLoaded()
         val subtitles = mutableListOf<Subtitle>()
@@ -1104,7 +1116,8 @@ class StreamRepository @Inject constructor(
             type = "series",
             imdbId = imdbId,
             season = season,
-            episode = episode
+            episode = episode,
+            preferredQuality = preferredQuality // Added to cache key
         )
         if (!forceRefresh) {
             synchronized(streamResultCache) {
@@ -1131,7 +1144,10 @@ class StreamRepository @Inject constructor(
                 )
             }
         }
-        val streams = streamJobs.awaitAll().flatten().toMutableList()
+        var streams = streamJobs.awaitAll().flatten().toMutableList()
+
+        // Filter and sort streams based on preferred quality
+        streams = filterAndSortStreamsByQuality(streams, preferredQuality).toMutableList()
 
         // Keep core source lookup fully addon-driven and non-blocking.
         // IPTV VOD enrichment is appended separately in ViewModels.
@@ -1152,7 +1168,8 @@ class StreamRepository @Inject constructor(
         genreIds: List<Int> = emptyList(),
         originalLanguage: String? = null,
         title: String = "",
-        forceRefresh: Boolean = false
+        forceRefresh: Boolean = false,
+        preferredQuality: String = "Any" // Added preferredQuality parameter
     ): Flow<ProgressiveStreamResult> = callbackFlow {
         repositoryScope.launch {
             ensureAddonHealthLoaded()
@@ -1163,7 +1180,8 @@ class StreamRepository @Inject constructor(
                 type = "series",
                 imdbId = imdbId,
                 season = season,
-                episode = episode
+                episode = episode,
+                preferredQuality = preferredQuality // Added to cache key
             )
             if (!forceRefresh) {
                 synchronized(streamResultCache) {
@@ -1208,13 +1226,17 @@ class StreamRepository @Inject constructor(
                                 u.isNotBlank() && !u.startsWith("magnet:", ignoreCase = true)
                             }
                             .distinctBy { "${it.url?.trim().orEmpty()}|${it.source}" }
+                        
+                        // Filter and sort by preferred quality before emitting
+                        val finalStreams = filterAndSortStreamsByQuality(deduped, preferredQuality)
+
                         if (completed == prioritizedAddons.size) {
-                            val finalResult = StreamResult(deduped, emptyList())
+                            val finalResult = StreamResult(finalStreams, emptyList())
                             synchronized(streamResultCache) {
                                 streamResultCache[cacheKey] = CachedStreamResult(finalResult, System.currentTimeMillis())
                             }
                         }
-                        ProgressiveStreamResult(deduped, emptyList(), completed, prioritizedAddons.size, completed == prioritizedAddons.size)
+                        ProgressiveStreamResult(finalStreams, emptyList(), completed, prioritizedAddons.size, completed == prioritizedAddons.size)
                     }
                     trySend(emission)
                     if (emission.isFinal) close()
@@ -1711,6 +1733,35 @@ class StreamRepository @Inject constructor(
             quality.contains("480p", ignoreCase = true) -> 40
             else -> 20
         }
+    }
+
+    // New function to filter and sort streams based on preferred quality
+    private fun filterAndSortStreamsByQuality(streams: List<StreamSource>, preferredQuality: String): List<StreamSource> {
+        if (preferredQuality == "Any") {
+            return streams.sortedWith(compareByDescending { getQualityScore(it.quality) }).distinctBy { it.url }
+        }
+
+        val preferredQualityScore = getQualityScore(preferredQuality)
+
+        // Filter for streams matching the preferred quality
+        val matchingQualityStreams = streams.filter { getQualityScore(it.quality) == preferredQualityScore }
+
+        // If there are streams matching the preferred quality, sort them by health bias
+        if (matchingQualityStreams.isNotEmpty()) {
+            return matchingQualityStreams.sortedByDescending { getAddonHealthBias(it.addonId) }.distinctBy { it.url }
+        }
+
+        // If no streams match the preferred quality, filter for the next best available quality
+        val fallbackStreams = streams.filter { getQualityScore(it.quality) < preferredQualityScore }
+            .sortedWith(compareByDescending { getQualityScore(it.quality) })
+            .distinctBy { it.url }
+
+        if (fallbackStreams.isNotEmpty()) {
+            return fallbackStreams.sortedByDescending { getAddonHealthBias(it.addonId) }
+        }
+        
+        // If no streams at all, return empty list
+        return emptyList()
     }
 
     fun getAddonHealthBias(addonId: String): Int {

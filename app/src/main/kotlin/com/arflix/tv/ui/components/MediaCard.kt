@@ -397,25 +397,28 @@ fun PosterCard(
             )
         }
 
-        // Only show title and year when focused
-        if (visualFocused) {
-            Spacer(modifier = Modifier.height(ArvioSkin.spacing.x1))
+        Spacer(modifier = Modifier.height(ArvioSkin.spacing.x1)) // Moved outside of if (visualFocused)
 
+        Text(
+            text = item.title,
+            style = ArvioSkin.typography.caption,
+            color = if (visualFocused) {
+                ArvioSkin.colors.textPrimary
+            } else {
+                ArvioSkin.colors.textPrimary.copy(alpha = 0.85f)
+            },
+            maxLines = 3, // Increased maxLines to 3
+            overflow = TextOverflow.Ellipsis,
+        )
+
+        if (item.year.isNotBlank()) {
             Text(
-                text = item.title,
+                text = item.year,
                 style = ArvioSkin.typography.caption,
-                color = ArvioSkin.colors.textPrimary,
-                maxLines = 2,
+                color = ArvioSkin.colors.textMuted.copy(alpha = 0.65f),
+                maxLines = 1, // Ensure year doesn't wrap excessively
                 overflow = TextOverflow.Ellipsis,
             )
-
-            if (item.year.isNotBlank()) {
-                Text(
-                    text = item.year,
-                    style = ArvioSkin.typography.caption,
-                    color = ArvioSkin.colors.textMuted.copy(alpha = 0.65f),
-                )
-            }
         }
     }
 }

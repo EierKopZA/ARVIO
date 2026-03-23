@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlin.math.abs
 
 data class PlayerUiState(
     val isLoading: Boolean = true,
@@ -56,6 +57,7 @@ data class PlayerUiState(
     val savedPosition: Long = 0,
     val preferredAudioLanguage: String = "en",
     val frameRateMatchingMode: String = "Off",
+    val autoPlayPreferredQuality: String = "Auto",
     val error: String? = null,
     val isSetupError: Boolean = false, // true when error is due to missing addons (shows friendly guide instead of red error)
     // Skip intro/recap
@@ -120,6 +122,8 @@ class PlayerViewModel @Inject constructor(
     private fun defaultAudioLanguageKey() = profileManager.profileStringKey("default_audio_language")
     private fun subtitleUsageKey() = profileManager.profileStringKey("subtitle_usage_v1")
     private fun frameRateMatchingModeKey() = profileManager.profileStringKey("frame_rate_matching_mode")
+    private fun preferredQualityKey() = profileManager.profileStringKey("preferred_video_quality")
+    
     private val gson = Gson()
     private val knownLanguageCodes = setOf(
         "en", "es", "fr", "de", "it", "pt", "nl", "ru", "zh", "ja", "ko",
@@ -170,11 +174,14 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             val preferredAudioLanguage = resolvePreferredAudioLanguage()
             val frameRateMatchingMode = resolveFrameRateMatchingMode()
+            val preferredQuality = resolvePreferredQuality()
+            
             _uiState.value = PlayerUiState(
                 isLoading = true,
                 isLoadingStreams = true,
                 preferredAudioLanguage = preferredAudioLanguage,
-                frameRateMatchingMode = frameRateMatchingMode
+                frameRateMatchingMode = frameRateMatchingMode,
+                autoPlayPreferredQuality = preferredQuality
             )
 
             // If stream URL provided, use it directly (except magnet links, which require resolution).
@@ -358,6 +365,7 @@ class PlayerViewModel @Inject constructor(
                 )
 
                 val preferredLanguage = _uiState.value.preferredAudioLanguage.ifBlank { resolvePreferredAudioLanguage() }
+                val targetQuality = _uiState.value.autoPlayPreferredQuality
                 val progressiveFlow = if (mediaType == MediaType.MOVIE) {
                     streamRepository.resolveMovieStreamsProgressive(
                         imdbId = imdbId,
@@ -426,13 +434,13 @@ class PlayerViewModel @Inject constructor(
 
                     if (shouldSelectNow) {
                         autoplaySelected = true
-                        autoplaySelectBest(mergedStreams, preferredLanguage)
+                        autoplaySelectBest(mergedStreams, preferredLanguage, targetQuality)
                     }
                 }
 
                 if (!autoplaySelected && lastMergedStreams.isNotEmpty()) {
                     autoplaySelected = true
-                    autoplaySelectBest(lastMergedStreams, preferredLanguage)
+                    autoplaySelectBest(lastMergedStreams, preferredLanguage, targetQuality)
                 }
 
                 // Apply subtitle preference in background (non-blocking)
@@ -615,6 +623,15 @@ class PlayerViewModel @Inject constructor(
             }
         } catch (_: Exception) {
             "Off"
+        }
+    }
+
+    private suspend fun resolvePreferredQuality(): String {
+        return try {
+            val prefs = context.settingsDataStore.data.first()
+            prefs[preferredQualityKey()]?.trim() ?: "Auto"
+        } catch (_: Exception) {
+            "Auto"
         }
     }
 
@@ -804,7 +821,11 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    private fun autoplaySelectBest(streams: List<StreamSource>, preferredLanguage: String) {
+    private fun autoplaySelectBest(
+        streams: List<StreamSource>, 
+        preferredLanguage: String, 
+        preferredQuality: String
+    ) {
         val preferredFromBingeGroup = currentPreferredBingeGroup?.let { preferredGroup ->
             streams.firstOrNull { stream ->
                 stream.behaviorHints?.bingeGroup == preferredGroup &&
@@ -822,18 +843,20 @@ class PlayerViewModel @Inject constructor(
             currentPreferredAddonId?.let { s.addonId == it } ?: false
         }
 
-        val stabilitySelected = pickPreferredStream(streams, preferredLanguage)
+        val stabilitySelected = pickPreferredStream(streams, preferredLanguage, preferredQuality)
         val selected = preferredFromBingeGroup ?: preferredFromNavigation ?: stabilitySelected ?: streams.first()
         selectStream(selected)
     }
 
     private fun pickPreferredStream(
         streams: List<StreamSource>,
-        preferredLanguage: String
+        preferredLanguage: String,
+        preferredQuality: String
     ): StreamSource? {
         if (streams.isEmpty()) return null
 
         val maxSizeBytes = 20L * 1024 * 1024 * 1024 // 20GB - anything larger is likely a season pack
+        val targetQualityScore = qualityScore(preferredQuality)
 
         // Step 1: Filter out season packs (>20GB) when possible.
         val candidates = streams.filter {
@@ -842,11 +865,23 @@ class PlayerViewModel @Inject constructor(
         }
         val pool = if (candidates.isNotEmpty()) candidates else streams
 
-        // Step 2: Score by language affinity and playback stability.
+        // Step 2: Score by language affinity, quality match, and playback stability.
         return pool.maxByOrNull { stream ->
             val langScore = streamLanguageScore(stream, preferredLanguage)
             val stabilityScore = playbackPriorityScore(stream)
-            (langScore * 10_000) + stabilityScore
+            
+            if (targetQualityScore > 0) {
+                val streamQualityScore = qualityScore(stream.quality)
+                // Calculate distance to preferred quality (0 is exact match)
+                val distance = abs(streamQualityScore - targetQualityScore)
+                // Convert distance to a match score (exact match = 10, nearest = 9, etc.)
+                val qualityMatchScore = 10 - distance
+                
+                (langScore * 10_000_000) + (qualityMatchScore * 100_000) + stabilityScore
+            } else {
+                // "Auto" or unknown preference -> fallback to legacy scoring behavior
+                (langScore * 10_000) + stabilityScore
+            }
         }
     }
 
@@ -1806,4 +1841,3 @@ class PlayerViewModel @Inject constructor(
         )
     }
 }
-

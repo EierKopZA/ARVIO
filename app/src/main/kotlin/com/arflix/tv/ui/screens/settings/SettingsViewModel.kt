@@ -68,7 +68,7 @@ data class SettingsUiState(
     val frameRateMatchingMode: String = "Off",
     val autoPlayNext: Boolean = true,
     val autoPlaySingleSource: Boolean = true,
-    val autoPlayMinQuality: String = "Any",
+    val autoPlayPreferredQuality: String = "Any", // Changed from autoPlayMinQuality
     val includeSpecials: Boolean = false,
     val isLoggedIn: Boolean = false,
     val accountEmail: String? = null,
@@ -163,8 +163,8 @@ class SettingsViewModel @Inject constructor(
     private fun autoPlayNextKeyFor(profileId: String) = profileManager.profileBooleanKeyFor(profileId, "auto_play_next")
     private fun autoPlaySingleSourceKey() = profileManager.profileBooleanKey("auto_play_single_source")
     private fun autoPlaySingleSourceKeyFor(profileId: String) = profileManager.profileBooleanKeyFor(profileId, "auto_play_single_source")
-    private fun autoPlayMinQualityKey() = profileManager.profileStringKey("auto_play_min_quality")
-    private fun autoPlayMinQualityKeyFor(profileId: String) = profileManager.profileStringKeyFor(profileId, "auto_play_min_quality")
+    private fun autoPlayPreferredQualityKey() = profileManager.profileStringKey("auto_play_preferred_quality") // Changed from autoPlayMinQualityKey
+    private fun autoPlayPreferredQualityKeyFor(profileId: String) = profileManager.profileStringKeyFor(profileId, "auto_play_preferred_quality") // Changed from autoPlayMinQualityKeyFor
     private fun includeSpecialsKey() = profileManager.profileBooleanKey("include_specials")
     private fun includeSpecialsKeyFor(profileId: String) = profileManager.profileBooleanKeyFor(profileId, "include_specials")
     private val gson = Gson()
@@ -244,7 +244,7 @@ class SettingsViewModel @Inject constructor(
             if (prefs[autoPlayNextKey()] == null) {
                 context.settingsDataStore.edit { it[autoPlayNextKey()] = true }
             }
-            val autoPlayMinQuality = normalizeAutoPlayMinQuality(prefs[autoPlayMinQualityKey()])
+            val autoPlayPreferredQuality = normalizeAutoPlayPreferredQuality(prefs[autoPlayPreferredQualityKey()]) // Changed from autoPlayMinQuality
             val includeSpecials = prefs[includeSpecialsKey()] ?: false
 
             // Check auth statuses
@@ -278,7 +278,7 @@ class SettingsViewModel @Inject constructor(
                 frameRateMatchingMode = frameRateMode,
                 autoPlayNext = autoPlay,
                 autoPlaySingleSource = autoPlaySingleSource,
-                autoPlayMinQuality = autoPlayMinQuality,
+                autoPlayPreferredQuality = autoPlayPreferredQuality, // Changed from autoPlayMinQuality
                 includeSpecials = includeSpecials,
                 isLoggedIn = isLoggedIn,
                 accountEmail = accountEmail,
@@ -634,24 +634,24 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun cycleAutoPlayMinQuality() {
-        val current = normalizeAutoPlayMinQuality(_uiState.value.autoPlayMinQuality)
+    fun cycleAutoPlayPreferredQuality() { // Changed from cycleAutoPlayMinQuality
+        val current = normalizeAutoPlayPreferredQuality(_uiState.value.autoPlayPreferredQuality) // Changed from autoPlayMinQuality
         val next = when (current) {
             "Any" -> "720p"
             "720p" -> "1080p"
             "1080p" -> "4K"
             else -> "Any"
         }
-        setAutoPlayMinQuality(next)
+        setAutoPlayPreferredQuality(next) // Changed from setAutoPlayMinQuality
     }
 
-    private fun setAutoPlayMinQuality(value: String) {
-        val normalized = normalizeAutoPlayMinQuality(value)
+    private fun setAutoPlayPreferredQuality(value: String) { // Changed from setAutoPlayMinQuality
+        val normalized = normalizeAutoPlayPreferredQuality(value) // Changed from normalizeAutoPlayMinQuality
         viewModelScope.launch {
             context.settingsDataStore.edit { prefs ->
-                prefs[autoPlayMinQualityKey()] = normalized
+                prefs[autoPlayPreferredQualityKey()] = normalized // Changed from autoPlayMinQualityKey
             }
-            _uiState.value = _uiState.value.copy(autoPlayMinQuality = normalized)
+            _uiState.value = _uiState.value.copy(autoPlayPreferredQuality = normalized) // Changed from autoPlayMinQuality
             syncLocalStateToCloud(silent = true)
         }
     }
@@ -728,7 +728,7 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    private fun normalizeAutoPlayMinQuality(raw: String?): String {
+    private fun normalizeAutoPlayPreferredQuality(raw: String?): String { // Changed from normalizeAutoPlayMinQuality
         return when (raw?.trim()?.lowercase()) {
             "any" -> "Any"
             "720p", "hd" -> "720p"
@@ -1719,7 +1719,3 @@ class SettingsViewModel @Inject constructor(
         traktPollingJob?.cancel()
     }
 }
-
-
-
-

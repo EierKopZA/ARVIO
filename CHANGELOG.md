@@ -7,6 +7,14 @@ All notable changes to this project are documented in this file.
 ### Added
 - (Nothing yet)
 
+### Improved
+- Player OSD now remains visible when navigating its buttons.
+- Seekbar now appears when seeking forward or backward outside of full controls.
+- Movie titles and year are always visible on portrait cards in search, with increased `maxLines` for titles to prevent truncation.
+
+### Fixed
+- (Nothing yet)
+
 ## [1.9.2] - 2026-03-19
 
 ### Added
