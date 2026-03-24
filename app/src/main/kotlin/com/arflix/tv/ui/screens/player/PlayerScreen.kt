@@ -9,7 +9,13 @@ import android.os.Build
 import com.arflix.tv.BuildConfig
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -307,7 +313,7 @@ fun PlayerScreen(
                 .map { offset -> (currentStreamIndex + offset) % streams.size }
                 .firstOrNull { idx ->
                     streams[idx].url?.isNotBlank() == true &&
-                        idx !in triedStreamIndexes
+                            idx !in triedStreamIndexes
                 } ?: -1
 
             if (nextIndex < 0) {
@@ -478,11 +484,11 @@ fun PlayerScreen(
                         if (hasPlaybackStarted) {
                             val isTransientError =
                                 error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
-                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
-                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
-                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
-                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_TIMEOUT ||
-                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW
+                                        error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                                        error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
+                                        error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
+                                        error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_TIMEOUT ||
+                                        error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW
                             if (isTransientError && midPlaybackRecoveryAttempts < 3) {
                                 midPlaybackRecoveryAttempts++
                                 val pos = currentPosition.coerceAtLeast(0L)
@@ -504,17 +510,17 @@ fun PlayerScreen(
                         // Source/decoder/network errors on startup should fail over to another source.
                         // Error codes: https://developer.android.com/reference/androidx/media3/common/PlaybackException
                         val isSourceError = error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
-                            error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED ||
-                            error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED ||
-                            error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES ||
-                            error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED ||
-                            error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
-                            error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
-                            error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
-                            error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
-                            error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
-                            error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
-                            error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_TIMEOUT
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED ||
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED ||
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES ||
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED ||
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_TIMEOUT
 
                         if (isSourceError) {
                             val sourceLikelyDv = isLikelyDolbyVisionStream(latestUiState.selectedStream)
@@ -547,11 +553,11 @@ fun PlayerScreen(
                             }.lowercase()
                             val isTimeoutError =
                                 error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_TIMEOUT ||
-                                    error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
-                                    "timeout" in timeoutMessage ||
-                                    "timed out" in timeoutMessage ||
-                                    "sockettimeout" in timeoutMessage ||
-                                    "etimedout" in timeoutMessage
+                                        error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
+                                        "timeout" in timeoutMessage ||
+                                        "timed out" in timeoutMessage ||
+                                        "sockettimeout" in timeoutMessage ||
+                                        "etimedout" in timeoutMessage
 
                             // For heavy sources, retry same source first instead of failing immediately.
                             if (!hasPlaybackStarted && heavy && isTimeoutError && startupSameSourceRetryCount < heavyStartupMaxRetries) {
@@ -619,13 +625,13 @@ fun PlayerScreen(
                                 .firstOrNull { currentAudioGroup.isTrackSelected(it) }
                             val matchingTrack = extractedAudioTracks.firstOrNull { track ->
                                 track.groupIndex == currentGroupIndex &&
-                                    (selectedTrackIndex == null || track.trackIndex == selectedTrackIndex)
+                                        (selectedTrackIndex == null || track.trackIndex == selectedTrackIndex)
                             }
                             if (matchingTrack != null) {
                                 selectedAudioIndex = extractedAudioTracks.indexOf(matchingTrack)
                             }
                         }
-                        
+
                         // Extract embedded subtitles
                         val textTracks = mutableListOf<Subtitle>()
                         val subtitleByTrackId = latestUiState.subtitles.associateBy { subtitleTrackId(it) }
@@ -639,8 +645,8 @@ fun PlayerScreen(
                                     } else {
                                         latestUiState.subtitles.firstOrNull { candidate ->
                                             !candidate.isEmbedded &&
-                                                candidate.label.equals(format.label, ignoreCase = true) &&
-                                                candidate.lang.equals(format.language ?: candidate.lang, ignoreCase = true)
+                                                    candidate.label.equals(format.label, ignoreCase = true) &&
+                                                    candidate.lang.equals(format.language ?: candidate.lang, ignoreCase = true)
                                         }
                                     }
                                     val lang = format.language ?: matched?.lang ?: "und"
@@ -1030,10 +1036,10 @@ fun PlayerScreen(
             val startupPending = uiState.selectedStreamUrl != null && !hasPlaybackStarted
             val startupStalled =
                 (
-                    exoPlayer.playbackState == Player.STATE_BUFFERING ||
-                        (exoPlayer.playbackState == Player.STATE_READY && !exoPlayer.isPlaying) ||
-                        exoPlayer.playbackState == Player.STATE_IDLE
-                )
+                        exoPlayer.playbackState == Player.STATE_BUFFERING ||
+                                (exoPlayer.playbackState == Player.STATE_READY && !exoPlayer.isPlaying) ||
+                                exoPlayer.playbackState == Player.STATE_IDLE
+                        )
             if (startupPending) {
                 val selectedAt = streamSelectedTime ?: System.currentTimeMillis()
                 val startupBufferDuration = System.currentTimeMillis() - selectedAt
@@ -1081,10 +1087,10 @@ fun PlayerScreen(
             val hasVideoOutput = exoPlayer.videoSize.width > 0 && exoPlayer.videoSize.height > 0
             val blackVideoState =
                 uiState.selectedStreamUrl != null &&
-                    exoPlayer.playbackState == Player.STATE_READY &&
-                    exoPlayer.playWhenReady &&
-                    hasSelectedAudioTrack &&
-                    !hasVideoOutput
+                        exoPlayer.playbackState == Player.STATE_READY &&
+                        exoPlayer.playWhenReady &&
+                        hasSelectedAudioTrack &&
+                        !hasVideoOutput
             if (blackVideoState) {
                 if (blackVideoReadySinceMs == null) {
                     blackVideoReadySinceMs = System.currentTimeMillis()
@@ -1139,7 +1145,7 @@ fun PlayerScreen(
                 val currentSecond = (currentPosition / 1000L).coerceAtLeast(0L)
                 val shouldReport =
                     (!exoPlayer.isPlaying && currentSecond != lastProgressReportSecond) ||
-                        (exoPlayer.isPlaying && (lastProgressReportSecond < 0L || currentSecond - lastProgressReportSecond >= 3L))
+                            (exoPlayer.isPlaying && (lastProgressReportSecond < 0L || currentSecond - lastProgressReportSecond >= 3L))
                 if (shouldReport) {
                     lastProgressReportSecond = currentSecond
                     val progressPercent = (currentPosition.toFloat() / duration.toFloat() * 100).toInt()
@@ -1331,18 +1337,18 @@ fun PlayerScreen(
                         }
 
                         return@onKeyEvent when (event.key) {
-                        Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> {
-                            if (event.key == Key.MediaPause) {
-                                exoPlayer.pause()
-                            } else if (event.key == Key.MediaPlay) {
-                                exoPlayer.play()
-                            } else {
-                                if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                            Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> {
+                                if (event.key == Key.MediaPause) {
+                                    exoPlayer.pause()
+                                } else if (event.key == Key.MediaPlay) {
+                                    exoPlayer.play()
+                                } else {
+                                    if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                                }
+                                showControls = true
+                                true
                             }
-                            showControls = true
-                            true
-                        }
-                        Key.Back, Key.Escape -> {
+                            Key.Back, Key.Escape -> {
                                 showSubtitleMenu = false
                                 showControls = true
                                 // Restore focus to subtitle button
@@ -1584,12 +1590,9 @@ fun PlayerScreen(
                 }
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    WaveLoadingDots(
-                        dotCount = 4,
-                        dotSize = 14.dp,
-                        dotSpacing = 14.dp,
-                        color = PurplePrimary,
-                        secondaryColor = PurpleLight
+                    PulsingLogo(
+                        logoUrl = uiState.logoUrl,
+                        title = uiState.title
                     )
 
                     Spacer(modifier = Modifier.height(20.dp))
@@ -1615,13 +1618,9 @@ fun PlayerScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                // Use smaller wave dots for mid-stream buffering
-                WaveLoadingDots(
-                    dotCount = 4,
-                    dotSize = 12.dp,
-                    dotSpacing = 12.dp,
-                    color = PurplePrimary,
-                    secondaryColor = PurpleLight
+                PulsingLogo(
+                    logoUrl = uiState.logoUrl,
+                    title = uiState.title
                 )
             }
         }
@@ -1688,7 +1687,7 @@ fun PlayerScreen(
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ,
+                                ,
                                 modifier = Modifier.padding(top = 6.dp)
                             ) {
                                 Text(
@@ -1733,25 +1732,56 @@ fun PlayerScreen(
                         }
                     }
 
-                    // Right side - clock
-                    val currentTime = remember { mutableStateOf("") }
-                    LaunchedEffect(Unit) {
-                        while (true) {
-                            currentTime.value = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-                                .format(java.util.Date())
-                            kotlinx.coroutines.delay(30000)
+                    // Right side - Ends At + Clock
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        val currentTime = remember { mutableStateOf("") }
+                        val endsAtTime = remember { mutableStateOf("") }
+
+                        LaunchedEffect(duration, currentPosition) {
+                            while (true) {
+                                val now = System.currentTimeMillis()
+                                val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                                currentTime.value = sdf.format(java.util.Date(now))
+
+                                if (duration > 0 && currentPosition >= 0) {
+                                    val remainingMs = (duration - currentPosition).coerceAtLeast(0L)
+                                    val endTime = now + remainingMs
+                                    endsAtTime.value = sdf.format(java.util.Date(endTime))
+                                } else {
+                                    endsAtTime.value = ""
+                                }
+
+                                kotlinx.coroutines.delay(1000)
+                            }
+                        }
+
+                        Text(
+                            text = currentTime.value,
+                            style = ArflixTypography.body.copy(
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            color = TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        if (endsAtTime.value.isNotBlank()) {
+                            Text(
+                                text = "Ends at ${endsAtTime.value}",
+                                style = ArflixTypography.caption.copy(
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Normal
+                                ),
+                                color = TextSecondary.copy(alpha = 0.7f),
+                                maxLines = 1,
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
                         }
                     }
-                    Text(
-                        text = currentTime.value,
-                        style = ArflixTypography.body.copy(
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Medium
-                        ),
-                        color = TextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
                 }
 
                 // Bottom controls - positioned at very bottom
@@ -2350,6 +2380,63 @@ private fun ErrorButton(
 }
 
 /**
+ * Animated pulsing logo for loading states
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun PulsingLogo(
+    logoUrl: String?,
+    title: String,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 0.92f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseScale"
+    )
+
+    Box(
+        modifier = modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        if (!logoUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = logoUrl,
+                contentDescription = title,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .width(280.dp)
+                    .height(100.dp)
+            )
+        } else {
+            Text(
+                text = title,
+                style = ArflixTypography.sectionTitle.copy(
+                    fontSize = 36.sp,
+                    fontWeight = FontWeight.Bold,
+                    shadow = Shadow(
+                        color = Color.Black.copy(alpha = 0.8f),
+                        offset = Offset(0f, 4f),
+                        blurRadius = 12f
+                    )
+                ),
+                color = Color.White,
+                modifier = Modifier.padding(horizontal = 24.dp)
+            )
+        }
+    }
+}
+
+/**
  * Audio track info from ExoPlayer
  */
 data class AudioTrackInfo(
@@ -2540,7 +2627,7 @@ private fun SubtitleMenu(
                                 val languageInfo = getFullLanguageName(subtitle.lang)
                                 // Only show language info if different from label
                                 val subtitleInfo = if (trackLabel.lowercase() != languageInfo.lowercase() &&
-                                                       !trackLabel.lowercase().contains(languageInfo.lowercase())) {
+                                    !trackLabel.lowercase().contains(languageInfo.lowercase())) {
                                     languageInfo
                                 } else null
                                 TrackMenuItem(
@@ -3013,7 +3100,7 @@ private fun detectAudioCodecLabel(codec: String?, trackLabel: String?): String? 
         haystack.isBlank() -> null
         haystack.contains("dts:x") || haystack.contains("dtsx") || haystack.contains("dts x") -> "DTS:X"
         haystack.contains("dts-hd") || haystack.contains("dts hd") ||
-            haystack.contains("dtshd") || haystack.contains("dca-ma") || haystack.contains("dca-hd") -> "DTS-HD"
+                haystack.contains("dtshd") || haystack.contains("dca-ma") || haystack.contains("dca-hd") -> "DTS-HD"
         haystack.contains("truehd") && haystack.contains("atmos") -> "TrueHD Atmos"
         haystack.contains("truehd") -> "TrueHD"
         haystack.contains("eac3") || haystack.contains("e-ac3") || haystack.contains("dd+") -> "E-AC3"
@@ -3185,11 +3272,11 @@ private fun isLikelyHeavyStream(stream: StreamSource?): Boolean {
     }.lowercase()
     val sizeBytes = parseSizeToBytes(stream.size)
     return sizeBytes >= 20L * 1024 * 1024 * 1024 ||
-        text.contains("4k") ||
-        text.contains("2160") ||
-        text.contains("remux") ||
-        text.contains("dolby vision") ||
-        text.contains(" dovi")
+            text.contains("4k") ||
+            text.contains("2160") ||
+            text.contains("remux") ||
+            text.contains("dolby vision") ||
+            text.contains(" dovi")
 }
 
 private fun isLikelyDolbyVisionStream(stream: StreamSource?): Boolean {
@@ -3206,10 +3293,10 @@ private fun isLikelyDolbyVisionStream(stream: StreamSource?): Boolean {
         }
     }.lowercase()
     return text.contains("dolby vision") ||
-        text.contains(" dovi") ||
-        text.contains(" dv ") ||
-        text.contains(" dvp") ||
-        text.contains("hdr10+dv")
+            text.contains(" dovi") ||
+            text.contains(" dv ") ||
+            text.contains(" dvp") ||
+            text.contains("hdr10+dv")
 }
 
 private fun isFrameRateMatchingSupported(context: Context): Boolean {
@@ -3271,8 +3358,8 @@ private class PlaybackCookieJar : CookieJar {
             if (cookie.expiresAt <= now) return@forEach
             current.removeAll { existing ->
                 existing.name == cookie.name &&
-                    existing.domain == cookie.domain &&
-                    existing.path == cookie.path
+                        existing.domain == cookie.domain &&
+                        existing.path == cookie.path
             }
             current.add(cookie)
         }

@@ -184,15 +184,15 @@ class HomeViewModel @Inject constructor(
 
         val seasonEpisodesCache = HashMap<Pair<Int, Int>, List<com.arflix.tv.data.model.Episode>?>()
 
-        return items.mapNotNull { item ->
+        return items.map { item ->
             if (item.mediaType != MediaType.TV) {
-                return@mapNotNull item
+                return@map item
             }
 
             val season = item.season
             val episode = item.episode
             if (season == null || episode == null) {
-                return@mapNotNull item
+                return@map item
             }
 
             val cacheKey = item.id to season
@@ -206,26 +206,21 @@ class HomeViewModel @Inject constructor(
                 fetched
             }
 
-            // If TMDB fetch failed, keep the item rather than silently dropping it.
-            if (seasonEpisodes == null) {
-                return@mapNotNull item
-            }
-
-            // Season loaded but has no known episodes => invalid/future target.
-            if (seasonEpisodes.isEmpty()) {
-                return@mapNotNull null
+            // If TMDB fetch failed or returned empty, just keep the item as-is.
+            if (seasonEpisodes.isNullOrEmpty()) {
+                return@map item
             }
 
             val matchedEpisode = seasonEpisodes.firstOrNull { it.episodeNumber == episode }
-                ?: return@mapNotNull null
 
-            if (!isEpisodeAlreadyAired(matchedEpisode.airDate)) {
-                return@mapNotNull null
+            // Only enrich title if episode found, otherwise keep the raw valid item
+            if (matchedEpisode != null) {
+                item.copy(
+                    episodeTitle = item.episodeTitle ?: matchedEpisode.name
+                )
+            } else {
+                item
             }
-
-            item.copy(
-                episodeTitle = item.episodeTitle ?: matchedEpisode.name
-            )
         }
     }
 
@@ -314,9 +309,9 @@ class HomeViewModel @Inject constructor(
 
     private fun isCustomCatalogConfig(cfg: CatalogConfig): Boolean {
         return !cfg.isPreinstalled ||
-            cfg.id.startsWith("custom_") ||
-            !cfg.sourceUrl.isNullOrBlank() ||
-            !cfg.sourceRef.isNullOrBlank()
+                cfg.id.startsWith("custom_") ||
+                !cfg.sourceUrl.isNullOrBlank() ||
+                !cfg.sourceRef.isNullOrBlank()
     }
 
     private fun hasRealItems(category: Category?): Boolean {
@@ -326,7 +321,7 @@ class HomeViewModel @Inject constructor(
     /**
      * Refresh the Favorite TV category's EPG data (Now/Next display).
      * @param networkFetch If true, also fetch fresh EPG from the Xtream short EPG API.
-     *                     If false, only re-derive from cached program data (free, no network).
+     * If false, only re-derive from cached program data (free, no network).
      */
     private fun refreshFavoriteTvEpg(networkFetch: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -777,7 +772,7 @@ class HomeViewModel @Inject constructor(
                 }
                 .distinctUntilChanged()
                 .drop(2) // Skip first two emissions to avoid re-triggering loadHomeData during
-                         // initial startup and ensurePreinstalledDefaults DataStore write.
+                // initial startup and ensurePreinstalledDefaults DataStore write.
                 .collect {
                     // Apply catalog reorder/add/remove immediately on Home.
                     loadHomeData()
@@ -825,7 +820,7 @@ class HomeViewModel @Inject constructor(
         // Only show placeholders if we have NO real CW items yet.
         val existingCW = _uiState.value.categories.firstOrNull {
             it.id == "continue_watching" && it.items.isNotEmpty() &&
-                it.items.none { item -> item.isPlaceholder }
+                    it.items.none { item -> item.isPlaceholder }
         }
         if (existingCW != null) {
             filteredCategories.add(0, existingCW)
@@ -1052,7 +1047,7 @@ class HomeViewModel @Inject constructor(
                     // state overwrite at line below would discard CW data.
                     val existingCW = _uiState.value.categories.firstOrNull {
                         it.id == "continue_watching" && it.items.isNotEmpty() &&
-                            it.items.none { item -> item.isPlaceholder }
+                                it.items.none { item -> item.isPlaceholder }
                     }
                     if (existingCW != null) {
                         categories.add(0, existingCW)
@@ -1224,7 +1219,7 @@ class HomeViewModel @Inject constructor(
                         _uiState.value = _uiState.value.copy(categories = updated)
                     }
                 }
-              } catch (e: Exception) {
+            } catch (e: Exception) {
                 if (requestId != loadHomeRequestId) return@loadHome
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
@@ -1553,7 +1548,7 @@ class HomeViewModel @Inject constructor(
             // Determine which source represents the more recent/correct episode target.
             // Trakt items are merged last and generally have the most authoritative next-episode.
             val sameEpisode = source.mediaType != MediaType.TV ||
-                (source.season == existing.season && source.episode == existing.episode)
+                    (source.season == existing.season && source.episode == existing.episode)
             // When episodes differ, always use the newer source as base to prevent
             // stale episode position from bleeding into the next episode.
             val picked = if (sameEpisode) {
@@ -1565,11 +1560,11 @@ class HomeViewModel @Inject constructor(
                 // Only carry resume position/duration forward if it's the SAME episode.
                 // Different episode = fresh start, so use the new source's data (which is 0 for "up next").
                 progress = if (sameEpisode) maxOf(existing.progress, source.progress)
-                    else source.progress.coerceIn(1, 99),
+                else source.progress.coerceIn(1, 99),
                 resumePositionSeconds = if (sameEpisode) maxOf(existing.resumePositionSeconds, source.resumePositionSeconds)
-                    else source.resumePositionSeconds,
+                else source.resumePositionSeconds,
                 durationSeconds = if (sameEpisode) maxOf(existing.durationSeconds, source.durationSeconds)
-                    else source.durationSeconds,
+                else source.durationSeconds,
                 season = source.season ?: existing.season,
                 episode = source.episode ?: existing.episode,
                 episodeTitle = source.episodeTitle ?: existing.episodeTitle,
@@ -2492,4 +2487,3 @@ class HomeViewModel @Inject constructor(
         }
     }
 }
-
