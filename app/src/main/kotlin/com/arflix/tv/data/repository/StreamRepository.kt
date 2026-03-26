@@ -19,6 +19,7 @@ import com.arflix.tv.data.model.StreamSource
 import com.arflix.tv.data.model.Subtitle
 import com.arflix.tv.util.AnimeMapper
 import com.arflix.tv.util.Constants
+import java.util.Locale
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -1338,7 +1339,7 @@ class StreamRepository @Inject constructor(
         val videoHash = stream?.behaviorHints?.videoHash?.trim().takeUnless { it.isNullOrBlank() }
         val videoSize = stream?.behaviorHints?.videoSize?.takeIf { it != null && it > 0L }
 
-        val contentId = when (mediaType) {
+        val rawContentId = when (mediaType) {
             MediaType.MOVIE -> imdbId
             MediaType.TV -> {
                 val s = season ?: return@withContext emptyList()
@@ -1347,12 +1348,14 @@ class StreamRepository @Inject constructor(
             }
             else -> return@withContext emptyList()
         }
+        val contentId = rawContentId
         val type = when (mediaType) {
             MediaType.MOVIE -> "movie"
             MediaType.TV -> "series"
             else -> ""
         }
 
+        val localeLanguage = Locale.getDefault().language
         subtitleAddons.flatMap { addon ->
             runCatching {
                 withTimeout(SUBTITLE_TIMEOUT_MS) {
@@ -1364,7 +1367,8 @@ class StreamRepository @Inject constructor(
                         id = contentId,
                         addonQueryParams = queryParams,
                         videoHash = videoHash,
-                        videoSize = videoSize
+                        videoSize = videoSize,
+                        language = localeLanguage
                     )
                     val response = streamApi.getSubtitles(url)
                     response.subtitles?.mapIndexed { index, sub ->
@@ -1388,7 +1392,8 @@ class StreamRepository @Inject constructor(
         id: String,
         addonQueryParams: String?,
         videoHash: String?,
-        videoSize: Long?
+        videoSize: Long?,
+        language: String? = null
     ): String {
         val base = baseUrl.trimEnd('/')
         val subtitleBase = if (base.endsWith("/subtitles", ignoreCase = true)) {
@@ -1406,10 +1411,12 @@ class StreamRepository @Inject constructor(
             hints.takeIf { it.isNotBlank() }
         ).joinToString("&")
 
+        val contentId = if (!language.isNullOrBlank()) "$id:lang=${language.trim().lowercase()}" else id
+
         return if (mergedQuery.isNotBlank()) {
-            "$subtitleBase/$type/$id.json?$mergedQuery"
+            "$subtitleBase/$type/$contentId.json?$mergedQuery"
         } else {
-            "$subtitleBase/$type/$id.json"
+            "$subtitleBase/$type/$contentId.json"
         }
     }
 

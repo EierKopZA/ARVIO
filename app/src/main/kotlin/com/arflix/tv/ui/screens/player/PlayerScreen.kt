@@ -3090,11 +3090,11 @@ private fun subtitleMimeTypeFromUrl(url: String): String {
         cleanUrl.endsWith(".srt") || cleanUrl.endsWith(".srt.gz") -> MimeTypes.APPLICATION_SUBRIP
         cleanUrl.endsWith(".ass") || cleanUrl.endsWith(".ssa") -> MimeTypes.TEXT_SSA
         cleanUrl.endsWith(".ttml") || cleanUrl.endsWith(".dfxp") -> MimeTypes.APPLICATION_TTML
-        // Extensionless URLs from addons (Comet, OpenSubtitles, etc.) - default to
-        // WebVTT which is the most common format served by subtitle addons.
-        // ExoPlayer handles VTT more gracefully than SRT when there's a format mismatch.
-        cleanUrl.contains("/subtitles/") || cleanUrl.contains("/subs/") || !cleanUrl.substringAfterLast('/').contains('.') -> MimeTypes.TEXT_VTT
-        else -> MimeTypes.TEXT_VTT  // Safe fallback - VTT parser is more lenient
+        // Extensionless URLs (e.g., OpenSubtitles stream URL) should prefer SRT behavior,
+        // because OpenSubtitles often serves SRT/SRT.GZ there. VTT fallback is still used
+        // for explicit .vtt URLs.
+        cleanUrl.contains("/subtitles/") || cleanUrl.contains("/subs/") || !cleanUrl.substringAfterLast('/').contains('.') -> MimeTypes.APPLICATION_SUBRIP
+        else -> MimeTypes.APPLICATION_SUBRIP  // Safer fallback for unknown subtitle URLs
     }
 }
 
