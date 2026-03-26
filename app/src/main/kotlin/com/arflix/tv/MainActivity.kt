@@ -3,6 +3,7 @@ package com.arflix.tv
 import android.os.Bundle
 import android.view.ViewTreeObserver
 import android.view.WindowManager
+import com.arflix.tv.R
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -133,11 +135,18 @@ class MainActivity : ComponentActivity() {
         // Instead, let the splash dismiss immediately and show our Compose loading screen
         installSplashScreen()
 
+        // Detect device type before super.onCreate().
+        // The splash screen's postSplashScreenTheme is Theme.ArflixTV.Mobile (no fullscreen)
+        // which is correct for phones/tablets. On TV we override to the fullscreen Leanback theme.
+        val initialDeviceType = detectDeviceType(this)
+        if (initialDeviceType == DeviceType.TV) {
+            setTheme(R.style.Theme_ArflixTV)
+        }
+
         super.onCreate(savedInstanceState)
         pendingLauncherRequest = parseLauncherRequest(intent)
 
         // Set orientation based on device type
-        val initialDeviceType = detectDeviceType(this)
         requestedOrientation = when (initialDeviceType) {
             DeviceType.TV -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
             DeviceType.TABLET -> ActivityInfo.SCREEN_ORIENTATION_SENSOR
@@ -147,11 +156,30 @@ class MainActivity : ComponentActivity() {
         // Keep screen on during playback
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        // Immersive fullscreen mode
+        // All devices use edge-to-edge (setDecorFitsSystemWindows=false).
+        // TV hides the bars; mobile keeps them visible and Compose handles
+        // insets via systemBarsPadding() in the root layout.
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        WindowInsetsControllerCompat(window, window.decorView).apply {
-            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            hide(WindowInsetsCompat.Type.systemBars())
+        if (initialDeviceType == DeviceType.TV) {
+            WindowInsetsControllerCompat(window, window.decorView).apply {
+                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                hide(WindowInsetsCompat.Type.systemBars())
+            }
+        } else {
+            // Clear any FLAG_FULLSCREEN the Leanback theme may have set
+            @Suppress("DEPRECATION")
+            window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            // Transparent bars — the dark app background shows through them.
+            // White (light) icons are used since the background is dark.
+            @Suppress("DEPRECATION")
+            window.statusBarColor = android.graphics.Color.TRANSPARENT
+            @Suppress("DEPRECATION")
+            window.navigationBarColor = android.graphics.Color.TRANSPARENT
+            WindowInsetsControllerCompat(window, window.decorView).apply {
+                show(WindowInsetsCompat.Type.systemBars())
+                isAppearanceLightStatusBars = false      // white icons on dark bg
+                isAppearanceLightNavigationBars = false  // white icons on dark bg
+            }
         }
 
         setContent {
@@ -217,9 +245,13 @@ class MainActivity : ComponentActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
-            // Re-apply immersive mode when window regains focus
-            WindowInsetsControllerCompat(window, window.decorView).apply {
-                hide(WindowInsetsCompat.Type.systemBars())
+            // Re-apply immersive mode only for TV when window regains focus.
+            // Mobile fullscreen is managed per-screen (e.g. player).
+            val currentDeviceType = detectDeviceType(this)
+            if (currentDeviceType == DeviceType.TV) {
+                WindowInsetsControllerCompat(window, window.decorView).apply {
+                    hide(WindowInsetsCompat.Type.systemBars())
+                }
             }
         }
     }
@@ -393,6 +425,7 @@ fun ArflixApp(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            // Background fills edge-to-edge (including behind transparent bars)
             .background(
                 brush = Brush.linearGradient(
                     colors = listOf(
@@ -402,6 +435,11 @@ fun ArflixApp(
                     )
                 )
             )
+            // On mobile, push content between the status bar and navigation bar.
+            // Applied AFTER background so the gradient fills behind the bars.
+            // systemBarsPadding() reads live WindowInsets, so it automatically
+            // becomes 0 when the player hides the bars.
+            .then(if (isMobile) Modifier.systemBarsPadding() else Modifier)
     ) {
         Box(modifier = Modifier.weight(1f)) {
             AppNavigation(

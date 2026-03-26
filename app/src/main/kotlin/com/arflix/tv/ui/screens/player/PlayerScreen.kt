@@ -180,6 +180,26 @@ fun PlayerScreen(
     val latestUiState by rememberUpdatedState(uiState)
     val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
+    val deviceType = LocalDeviceType.current
+
+    // On mobile, enable immersive fullscreen for the player and restore system bars on exit.
+    // TV is always in fullscreen so no change is needed there.
+    DisposableEffect(Unit) {
+        val activity = context as? android.app.Activity
+        val window = activity?.window
+        if (window != null && deviceType != com.arflix.tv.util.DeviceType.TV) {
+            val controller = androidx.core.view.WindowInsetsControllerCompat(window, window.decorView)
+            controller.systemBarsBehavior =
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        }
+        onDispose {
+            if (window != null && deviceType != com.arflix.tv.util.DeviceType.TV) {
+                val controller = androidx.core.view.WindowInsetsControllerCompat(window, window.decorView)
+                controller.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
 
     var isPlaying by remember { mutableStateOf(false) }
     var isBuffering by remember { mutableStateOf(true) }
