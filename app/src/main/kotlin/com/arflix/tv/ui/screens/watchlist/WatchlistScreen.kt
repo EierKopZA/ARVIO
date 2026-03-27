@@ -183,7 +183,17 @@ fun WatchlistScreen(
                         Key.DirectionUp -> {
                             if (isSidebarFocused) {
                                 true
-                            } else false
+                            } else {
+                                // When in grid and Up is pressed, allow native focus to handle it
+                                // If at first visible item, transition to sidebar
+                                val firstVisibleIndex = gridState.firstVisibleItemIndex
+                                if (firstVisibleIndex == 0 && focusedGridIndex < gridColumns) {
+                                    isSidebarFocused = true
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
                         }
                         Key.DirectionDown -> {
                             if (isSidebarFocused) {
@@ -195,7 +205,15 @@ fun WatchlistScreen(
                                     }
                                 }
                                 true
-                            } else false
+                            } else {
+                                // When in grid and Down is pressed, allow native focus to handle it
+                                // Only consume if we're at the last item (prevent getting stuck)
+                                if (focusedGridIndex >= uiState.items.size - 1) {
+                                    true // Consume to prevent focus loss
+                                } else {
+                                    false
+                                }
+                            }
                         }
                         Key.Enter, Key.DirectionCenter -> {
                             if (isSidebarFocused) {
@@ -306,6 +324,21 @@ fun WatchlistScreen(
                                     if (it.hasFocus) {
                                         isSidebarFocused = false
                                     }
+                                }
+                                .onKeyEvent { event ->
+                                    if (event.type == KeyEventType.KeyDown) {
+                                        when (event.key) {
+                                            Key.Back, Key.Escape -> {
+                                                isSidebarFocused = true
+                                                scope.launch {
+                                                    delay(40)
+                                                    runCatching { rootFocusRequester.requestFocus() }
+                                                }
+                                                true
+                                            }
+                                            else -> false
+                                        }
+                                    } else false
                                 }
                         ) {
                             itemsIndexed(uiState.items) { index, item ->
