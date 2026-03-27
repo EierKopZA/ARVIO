@@ -19,7 +19,6 @@ import com.arflix.tv.data.model.StreamSource
 import com.arflix.tv.data.model.Subtitle
 import com.arflix.tv.util.AnimeMapper
 import com.arflix.tv.util.Constants
-import java.util.Locale
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import dagger.hilt.android.qualifiers.ApplicationContext
