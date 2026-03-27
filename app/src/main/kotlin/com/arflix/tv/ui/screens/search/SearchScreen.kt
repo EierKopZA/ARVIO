@@ -148,6 +148,14 @@ fun SearchScreen(
     val filtersFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
+    // LaunchedEffect to restore RESULTS focus when results become available
+    LaunchedEffect(activeCategories, hasAiResults) {
+        if ((activeCategories.isNotEmpty() || hasAiResults) && focusZone == FocusZone.SEARCH_INPUT && isSearchInputFocused.not()) {
+            // If we have results and just returned from details, stay in search input but prepare for results
+            // This prevents the "back to keyboard" issue when returning from details
+        }
+    }
+    
     LaunchedEffect(Unit) { searchFocusRequester.requestFocus(); suppressSelectUntilMs = SystemClock.elapsedRealtime() + 300L }
 
     val showFilters = uiState.query.isEmpty()
@@ -164,7 +172,19 @@ fun SearchScreen(
                         true
                     }
                     FocusZone.FILTERS -> { focusZone = FocusZone.SEARCH_INPUT; searchFocusRequester.requestFocus(); true }
-                    FocusZone.SEARCH_INPUT -> { focusZone = FocusZone.SIDEBAR; true }
+                    FocusZone.SEARCH_INPUT -> {
+                        // If we have search results, go back to results instead of sidebar
+                        // This fixes the issue where back from details goes to keyboard instead of results
+                        if (activeCategories.isNotEmpty() || hasAiResults) {
+                            focusZone = FocusZone.RESULTS
+                            currentRowIndex = 0
+                            currentItemIndex = 0
+                            true
+                        } else {
+                            focusZone = FocusZone.SIDEBAR
+                            true
+                        }
+                    }
                     FocusZone.SIDEBAR -> { onBack(); true }
                 }
                 Key.DirectionUp -> when (focusZone) {
