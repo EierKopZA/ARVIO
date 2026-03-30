@@ -162,7 +162,8 @@ fun WatchlistScreen(
                         }
                         Key.DirectionLeft -> {
                             if (!isSidebarFocused) {
-                                true
+                                // Let the grid handle left movement within items.
+                                false
                             } else {
                                 if (sidebarFocusIndex > 0) {
                                     sidebarFocusIndex = (sidebarFocusIndex - 1).coerceIn(0, maxSidebarIndex)
@@ -177,6 +178,7 @@ fun WatchlistScreen(
                                 }
                                 true
                             } else {
+                                // Let the grid handle right movement within items.
                                 false
                             }
                         }
