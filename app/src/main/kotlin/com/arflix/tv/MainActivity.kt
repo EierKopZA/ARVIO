@@ -27,6 +27,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,8 +46,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -186,7 +190,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             // Observe device mode override changes live from DataStore
             val deviceModeOverride by remember { this@MainActivity.settingsDataStore.data.map { it[DEVICE_MODE_OVERRIDE_KEY] } }.collectAsState(initial = null)
-            val skipProfileSelection by remember { this@MainActivity.settingsDataStore.data.map { it[SKIP_PROFILE_SELECTION_KEY] ?: false } }.collectAsState(initial = false)
+            val skipProfileSelection by remember {
+                this@MainActivity.settingsDataStore.data.map { it[SKIP_PROFILE_SELECTION_KEY] ?: false }
+            }.collectAsState(initial = null as Boolean?)
+            val activeProfileLoaded by remember {
+                profileRepository.get().activeProfileId.map { true }
+            }.collectAsState(initial = false)
             val deviceType = when (deviceModeOverride) {
                 "tv" -> DeviceType.TV
                 "tablet" -> DeviceType.TABLET
@@ -210,6 +219,7 @@ class MainActivity : ComponentActivity() {
                         traktRepository = traktRepository.get(),
                         launcherContinueWatchingRepository = launcherContinueWatchingRepository.get(),
                         skipProfileSelection = skipProfileSelection,
+                        activeProfileLoaded = activeProfileLoaded,
                         pendingLauncherRequest = pendingLauncherRequest,
                         onConsumeLauncherRequest = { pendingLauncherRequest = null },
                         preloadedCategories = startupState.categories,
@@ -283,7 +293,7 @@ private fun ComponentActivity.runAfterFirstDraw(block: () -> Unit) {
 }
 
 /**
- * Simple ARVIO loading screen - white glowing text + spinner
+ * Simple ARVIO loading screen - app logo + spinner
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -301,15 +311,14 @@ fun ArvioLoadingScreen() {
         label = "rotation"
     )
 
-    // Pulsing glow for text
-    val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.5f,
+    val logoAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.72f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(1500, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "glow"
+        label = "logoAlpha"
     )
 
     Box(
@@ -318,58 +327,45 @@ fun ArvioLoadingScreen() {
             .background(Color(0xFF0a0a0a)),
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+        Image(
+            painter = painterResource(id = R.drawable.arvio_loading_logo),
+            contentDescription = "ARVIO",
+            modifier = Modifier.padding(horizontal = 24.dp),
+            contentScale = ContentScale.Fit,
+            alpha = logoAlpha
+        )
+
+        Canvas(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 132.dp)
+                .size(28.dp)
         ) {
-            // ARVIO text with white glow
-            Text(
-                text = "ARVIO",
-                fontSize = 48.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                letterSpacing = 8.sp,
-                style = androidx.compose.ui.text.TextStyle(
-                    shadow = Shadow(
-                        color = Color.White.copy(alpha = glowAlpha),
-                        offset = Offset.Zero,
-                        blurRadius = 30f
-                    )
-                )
+            val strokeWidth = 2.dp.toPx()
+            val arcSize = androidx.compose.ui.geometry.Size(
+                size.width - strokeWidth,
+                size.height - strokeWidth
             )
 
-            Spacer(modifier = Modifier.height(48.dp))
+            drawArc(
+                color = Color.White.copy(alpha = 0.12f),
+                startAngle = 0f,
+                sweepAngle = 360f,
+                useCenter = false,
+                topLeft = Offset(strokeWidth / 2, strokeWidth / 2),
+                size = arcSize,
+                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+            )
 
-            // Simple rotating spinner
-            Canvas(modifier = Modifier.size(48.dp)) {
-                val strokeWidth = 3.dp.toPx()
-                val arcSize = androidx.compose.ui.geometry.Size(
-                    size.width - strokeWidth,
-                    size.height - strokeWidth
-                )
-
-                // Background ring
-                drawArc(
-                    color = Color.White.copy(alpha = 0.15f),
-                    startAngle = 0f,
-                    sweepAngle = 360f,
-                    useCenter = false,
-                    topLeft = Offset(strokeWidth / 2, strokeWidth / 2),
-                    size = arcSize,
-                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                )
-
-                // Rotating arc
-                drawArc(
-                    color = Color.White,
-                    startAngle = rotation,
-                    sweepAngle = 90f,
-                    useCenter = false,
-                    topLeft = Offset(strokeWidth / 2, strokeWidth / 2),
-                    size = arcSize,
-                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                )
-            }
+            drawArc(
+                color = Color.White.copy(alpha = 0.9f),
+                startAngle = rotation,
+                sweepAngle = 82f,
+                useCenter = false,
+                topLeft = Offset(strokeWidth / 2, strokeWidth / 2),
+                size = arcSize,
+                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+            )
         }
     }
 }
@@ -384,7 +380,8 @@ fun ArflixApp(
     profileRepository: ProfileRepository,
     traktRepository: TraktRepository,
     launcherContinueWatchingRepository: LauncherContinueWatchingRepository,
-    skipProfileSelection: Boolean = false,
+    skipProfileSelection: Boolean? = null,
+    activeProfileLoaded: Boolean = false,
     pendingLauncherRequest: LauncherContinueWatchingRequest? = null,
     onConsumeLauncherRequest: () -> Unit = {},
     preloadedCategories: List<com.arflix.tv.data.model.Category> = emptyList(),
@@ -394,10 +391,19 @@ fun ArflixApp(
     onExitApp: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val navController = rememberNavController()
-    val appCoroutineScope = androidx.compose.runtime.rememberCoroutineScope()
     val authState by authRepository.authState.collectAsState()
     val activeProfile by profileRepository.activeProfile.collectAsState(initial = null)
+    val startupReady = skipProfileSelection != null &&
+        activeProfileLoaded &&
+        authState !is AuthState.Loading
+
+    if (!startupReady) {
+        ArvioLoadingScreen()
+        return
+    }
+
+    val navController = rememberNavController()
+    val appCoroutineScope = androidx.compose.runtime.rememberCoroutineScope()
     var lastAddonsSyncKey by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(authState, activeProfile?.id) {
@@ -412,7 +418,7 @@ fun ArflixApp(
     }
 
     // Always show profile selection on startup - user must manually choose a profile
-    val startDestination = if (skipProfileSelection && activeProfile != null) {
+    val startDestination = if (skipProfileSelection == true && activeProfile != null) {
         Screen.Home.route
     } else {
         Screen.ProfileSelection.route
@@ -515,4 +521,3 @@ private fun enqueueFullTraktSync(context: android.content.Context) {
         request
     )
 }
-
