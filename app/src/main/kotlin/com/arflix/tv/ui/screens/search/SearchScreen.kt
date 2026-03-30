@@ -167,14 +167,13 @@ fun SearchScreen(
             when (event.key) {
                 Key.Back, Key.Escape -> when (focusZone) {
                     FocusZone.RESULTS -> {
-                        if (showFilters) focusZone = FocusZone.FILTERS
-                        else { focusZone = FocusZone.SEARCH_INPUT; searchFocusRequester.requestFocus() }
+                        // Directly return to sidebar/topbar from results for expected back behavior
+                        focusZone = FocusZone.SIDEBAR
                         true
                     }
                     FocusZone.FILTERS -> { focusZone = FocusZone.SEARCH_INPUT; searchFocusRequester.requestFocus(); true }
                     FocusZone.SEARCH_INPUT -> {
-                        // If we have search results, go back to results instead of sidebar
-                        // This fixes the issue where back from details goes to keyboard instead of results
+                        // If we have active results, go back to results. Otherwise go to sidebar.
                         if (activeCategories.isNotEmpty() || hasAiResults) {
                             focusZone = FocusZone.RESULTS
                             currentRowIndex = 0
