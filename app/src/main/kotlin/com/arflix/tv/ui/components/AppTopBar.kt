@@ -1,5 +1,7 @@
 package com.arflix.tv.ui.components
 
+import android.content.Context
+import android.text.format.DateFormat
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -28,6 +30,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -292,10 +296,14 @@ private fun TopBarProfileChip(
 
 @Composable
 private fun rememberTopBarTime(): String {
-    var currentTime by remember { mutableStateOf(topBarCurrentTime()) }
+    val context = LocalContext.current
+    val is24Hour = DateFormat.is24HourFormat(context)
+    
+    var currentTime by remember { mutableStateOf(getCurrentTimeForFormat(is24Hour)) }
+    
     LaunchedEffect(Unit) {
         while (true) {
-            currentTime = topBarCurrentTime()
+            currentTime = getCurrentTimeForFormat(is24Hour)
             val now = System.currentTimeMillis()
             val delayToNextMinute = 60_000L - (now % 60_000L)
             delay(delayToNextMinute.coerceIn(1_000L, 60_000L))
@@ -304,7 +312,7 @@ private fun rememberTopBarTime(): String {
     return currentTime
 }
 
-private fun topBarCurrentTime(): String {
-    val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
+private fun getCurrentTimeForFormat(is24Hour: Boolean): String {
+    val sdf = SimpleDateFormat(if (is24Hour) "HH:mm" else "hh:mm a", Locale.getDefault())
     return sdf.format(Date())
 }
