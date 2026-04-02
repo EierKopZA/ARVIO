@@ -1864,7 +1864,6 @@ private fun HomeInputLayer(
             contentStartPadding = contentStartPadding,
             fastScrollThresholdMs = fastScrollThresholdMs,
             cardLayoutMode = cardLayoutMode,
-            usePosterCards = usePosterCards,
             isMobile = isMobile,
             heroItem = heroItem,
             heroOverviewOverride = heroOverviewOverride,
