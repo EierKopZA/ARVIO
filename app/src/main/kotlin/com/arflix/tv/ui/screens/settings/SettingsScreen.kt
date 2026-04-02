@@ -625,7 +625,9 @@ fun SettingsScreen(
                             onAutoPlaySingleSourceToggle = { viewModel.setAutoPlaySingleSource(it) },
                             onAutoPlayMinQualityClick = { viewModel.cycleAutoPlayMinQuality() },
                             trailerAutoPlay = uiState.trailerAutoPlay,
+                            trailerAudioEnabled = uiState.trailerAudioEnabled,
                             onTrailerAutoPlayToggle = { viewModel.setTrailerAutoPlay(it) },
+                            onTrailerAudioToggle = { viewModel.setTrailerAudioEnabled(it) },
                             onDeviceModeClick = {
                                 val next = when (uiState.deviceModeOverride) { "auto" -> "tv"; "tv" -> "tablet"; "tablet" -> "phone"; else -> "auto" }
                                 viewModel.setDeviceModeOverride(next)
@@ -797,7 +799,9 @@ fun SettingsScreen(
                             onAutoPlaySingleSourceToggle = { viewModel.setAutoPlaySingleSource(it) },
                             onAutoPlayMinQualityClick = { viewModel.cycleAutoPlayMinQuality() },
                             trailerAutoPlay = uiState.trailerAutoPlay,
+                            trailerAudioEnabled = uiState.trailerAudioEnabled,
                             onTrailerAutoPlayToggle = { viewModel.setTrailerAutoPlay(it) },
+                            onTrailerAudioToggle = { viewModel.setTrailerAudioEnabled(it) },
                             onDeviceModeClick = {
                                 val next = when (uiState.deviceModeOverride) { "auto" -> "tv"; "tv" -> "tablet"; "tablet" -> "phone"; else -> "auto" }
                                 viewModel.setDeviceModeOverride(next)
@@ -2127,9 +2131,11 @@ private fun GeneralSettings(
     onContentLanguageClick: () -> Unit = {},
     onSkipProfileSelectionToggle: (Boolean) -> Unit = {},
     trailerAutoPlay: Boolean = false,
+    trailerAudioEnabled: Boolean = false,
     onSubtitleSizeClick: () -> Unit = {},
     onSubtitleColorClick: () -> Unit = {},
-    onTrailerAutoPlayToggle: (Boolean) -> Unit = {}
+    onTrailerAutoPlayToggle: (Boolean) -> Unit = {},
+    onTrailerAudioToggle: (Boolean) -> Unit = {}
 ) {
     Column {
         // ── Language & Subtitles ──
@@ -2227,12 +2233,20 @@ private fun GeneralSettings(
             onToggle = onTrailerAutoPlayToggle
         )
         Spacer(modifier = Modifier.height(10.dp))
+        SettingsToggleRow(
+            title = "Trailer Audio",
+            subtitle = "Enable sound for banners",
+            isEnabled = trailerAudioEnabled,
+            isFocused = focusedIndex == 9,
+            onToggle = onTrailerAudioToggle
+        )
+        Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
             icon = Icons.Default.Movie,
             title = "Match Frame Rate",
             subtitle = "Off, Seamless, or Always",
             value = frameRateMatchingMode,
-            isFocused = focusedIndex == 9,
+            isFocused = focusedIndex == 10,
             onClick = onFrameRateMatchingClick
         )
 

@@ -556,6 +556,7 @@ fun HomeScreen(
             if (heroVideoUrl == null && uiState.trailerAutoPlay && uiState.heroTrailerKey != null) {
                 TrailerPlayer(
                     youtubeKey = uiState.heroTrailerKey!!,
+                    isMuted = !uiState.trailerAudioEnabled,
                     modifier = Modifier.fillMaxSize()
                 )
             }
