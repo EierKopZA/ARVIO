@@ -1342,6 +1342,7 @@ fun PlayerScreen(
     // Read subtitle appearance prefs
     val subtitleSizePref = uiState.subtitleSize
     val subtitleColorPref = uiState.subtitleColor
+    val subtitleOffsetPref = uiState.subtitleOffset
     val aspectModeLabel = when (playerResizeMode) {
         AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
         AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Fill"
@@ -1640,6 +1641,14 @@ fun PlayerScreen(
                                 "Cyan" -> android.graphics.Color.CYAN
                                 else -> android.graphics.Color.WHITE
                             }
+                            val paddingFraction = when (subtitleOffsetPref) {
+                                "Lowest" -> 0.02f
+                                "Lower" -> 0.05f
+                                "Normal" -> 0.08f
+                                "Higher" -> 0.13f
+                                "Highest" -> 0.18f
+                                else -> 0.08f
+                            }
                             setStyle(
                                 androidx.media3.ui.CaptionStyleCompat(
                                     subFgColor,
@@ -1653,7 +1662,7 @@ fun PlayerScreen(
                             setApplyEmbeddedStyles(false)
                             setApplyEmbeddedFontSizes(false)
                             setFixedTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, subSizeSp)
-                            setBottomPaddingFraction(0.08f)
+                            setBottomPaddingFraction(paddingFraction)
                         }
                     }
                 },

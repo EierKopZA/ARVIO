@@ -75,6 +75,7 @@ data class SettingsUiState(
     val dnsProviderOptions: List<String> = listOf("System DNS", "Cloudflare", "Google", "AdGuard"),
     val subtitleSize: String = "Medium",
     val subtitleColor: String = "White",
+    val subtitleOffset: String = "Normal",
     val trailerAutoPlay: Boolean = false,
     val includeSpecials: Boolean = false,
     val isLoggedIn: Boolean = false,
@@ -180,6 +181,7 @@ class SettingsViewModel @Inject constructor(
 
     private fun subtitleSizeKey() = profileManager.profileStringKey("subtitle_size")
     private fun subtitleColorKey() = profileManager.profileStringKey("subtitle_color")
+    private fun subtitleOffsetKey() = profileManager.profileStringKey("subtitle_offset")
     private fun dnsProviderKey() = profileManager.profileStringKey("dns_provider")
     private fun includeSpecialsKey() = profileManager.profileBooleanKey("include_specials")
     private fun includeSpecialsKeyFor(profileId: String) = profileManager.profileBooleanKeyFor(profileId, "include_specials")
@@ -267,6 +269,7 @@ class SettingsViewModel @Inject constructor(
 
             val subtitleSize = prefs[subtitleSizeKey()] ?: "Medium"
             val subtitleColor = prefs[subtitleColorKey()] ?: "White"
+            val subtitleOffset = prefs[subtitleOffsetKey()] ?: "Normal"
             val dnsProviderValue = normalizeDnsProviderValue(prefs[dnsProviderKey()])
             val includeSpecials = prefs[includeSpecialsKey()] ?: false
 
@@ -306,6 +309,7 @@ class SettingsViewModel @Inject constructor(
 
                 subtitleSize = subtitleSize,
                 subtitleColor = subtitleColor,
+                subtitleOffset = subtitleOffset,
                 dnsProvider = dnsProviderLabel(dnsProviderValue),
                 includeSpecials = includeSpecials,
                 isLoggedIn = isLoggedIn,
@@ -791,6 +795,11 @@ class SettingsViewModel @Inject constructor(
     fun cycleSubtitleColor() {
         val next = when (_uiState.value.subtitleColor) { "White" -> "Yellow"; "Yellow" -> "Green"; "Green" -> "Cyan"; else -> "White" }
         viewModelScope.launch { context.settingsDataStore.edit { it[subtitleColorKey()] = next }; _uiState.value = _uiState.value.copy(subtitleColor = next); syncLocalStateToCloud(silent = true) }
+    }
+
+    fun cycleSubtitleOffset() {
+        val next = when (_uiState.value.subtitleOffset) { "Lowest" -> "Lower"; "Lower" -> "Normal"; "Normal" -> "Higher"; "Higher" -> "Highest"; else -> "Lowest" }
+        viewModelScope.launch { context.settingsDataStore.edit { it[subtitleOffsetKey()] = next }; _uiState.value = _uiState.value.copy(subtitleOffset = next); syncLocalStateToCloud(silent = true) }
     }
 
     private fun normalizeDnsProviderValue(raw: String?): String {
