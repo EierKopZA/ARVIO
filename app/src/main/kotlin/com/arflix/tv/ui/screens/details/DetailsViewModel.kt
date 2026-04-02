@@ -82,6 +82,7 @@ data class DetailsUiState(
     val playEpisode: Int? = null,
     val playLabel: String? = null,
     val playPositionMs: Long? = null,
+    val autoPlaySingleSource: Boolean = true,
     val autoPlayMinQuality: String = "Any",
     val hideEpisodeSpoilers: Boolean = false
 )

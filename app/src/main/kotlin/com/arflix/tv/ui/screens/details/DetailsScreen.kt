@@ -583,6 +583,7 @@ fun DetailsScreen(
                     reviews = uiState.reviews,
                     similar = uiState.similar,
                     similarLogoUrls = uiState.similarLogoUrls,
+                    hideEpisodeSpoilers = uiState.hideEpisodeSpoilers,
                     focusedSection = focusedSection,
                     buttonIndex = buttonIndex,
                     episodeIndex = episodeIndex,
@@ -921,6 +922,7 @@ private fun DetailsContent(
     reviews: List<Review>,
     similar: List<MediaItem>,
     similarLogoUrls: Map<String, String>,
+    hideEpisodeSpoilers: Boolean = false,
     focusedSection: FocusSection,
     buttonIndex: Int,
     episodeIndex: Int,
@@ -1198,7 +1200,7 @@ private fun DetailsContent(
                             EpisodeCard(
                                 episode = episode,
                                 isFocused = false,
-                                hideEpisodeSpoilers = uiState.hideEpisodeSpoilers,
+                                hideEpisodeSpoilers = hideEpisodeSpoilers,
                                 onClick = { onEpisodeClick(index) }
                             )
                         }
@@ -1756,7 +1758,7 @@ private fun DetailsContent(
                             EpisodeCard(
                                 episode = episode,
                                 isFocused = isFocused,
-                                hideEpisodeSpoilers = uiState.hideEpisodeSpoilers,
+                                hideEpisodeSpoilers = hideEpisodeSpoilers,
                                 onClick = { onEpisodeClick(index) }
                             )
                         }

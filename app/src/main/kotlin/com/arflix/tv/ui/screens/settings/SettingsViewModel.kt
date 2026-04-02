@@ -268,7 +268,6 @@ class SettingsViewModel @Inject constructor(
             }
             val autoPlayMinQuality = normalizeAutoPlayMinQuality(prefs[autoPlayMinQualityKey()])
             val trailerAutoPlay = prefs[trailerAutoPlayKey()] ?: false
-            val hideEpisodeSpoilers = prefs[hideEpisodeSpoilersKey()] ?: false
 
             val subtitleSize = prefs[subtitleSizeKey()] ?: "Medium"
             val subtitleColor = prefs[subtitleColorKey()] ?: "White"
