@@ -2262,9 +2262,9 @@ private fun GeneralSettings(
         SettingsRow(
             icon = Icons.Default.Widgets,
             title = "Card Layout",
-            subtitle = "Landscape or poster cards",
+            subtitle = "Landscape, Poster, or Adaptive",
             value = cardLayoutMode,
-            isFocused = focusedIndex == 10,
+            isFocused = focusedIndex == 11,
             onClick = onCardLayoutToggle
         )
         Spacer(modifier = Modifier.height(10.dp))
@@ -2278,7 +2278,7 @@ private fun GeneralSettings(
                 "phone" -> "Phone"
                 else -> "Auto"
             },
-            isFocused = focusedIndex == 11,
+            isFocused = focusedIndex == 12,
             onClick = onDeviceModeClick
         )
         Spacer(modifier = Modifier.height(10.dp))
@@ -2286,7 +2286,7 @@ private fun GeneralSettings(
             title = "Skip Profile Selection",
             subtitle = "Auto-load last used profile",
             isEnabled = skipProfileSelection,
-            isFocused = focusedIndex == 12,
+            isFocused = focusedIndex == 13,
             onToggle = onSkipProfileSelectionToggle
         )
 
@@ -2304,7 +2304,7 @@ private fun GeneralSettings(
             title = "DNS Provider",
             subtitle = "Resolve API and stream requests",
             value = dnsProvider,
-            isFocused = focusedIndex == 13,
+            isFocused = focusedIndex == 14,
             onClick = onDnsProviderClick
         )
     }

@@ -693,10 +693,11 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun toggleCardLayoutMode() {
-        val next = if (_uiState.value.cardLayoutMode.equals("Poster", ignoreCase = true)) {
-            CARD_LAYOUT_MODE_LANDSCAPE
-        } else {
-            "Poster"
+        val current = normalizeCardLayoutMode(_uiState.value.cardLayoutMode)
+        val next = when (current) {
+            CARD_LAYOUT_MODE_LANDSCAPE -> CARD_LAYOUT_MODE_POSTER
+            CARD_LAYOUT_MODE_POSTER -> CARD_LAYOUT_MODE_ADAPTIVE
+            else -> CARD_LAYOUT_MODE_LANDSCAPE
         }
         setCardLayoutMode(next)
     }

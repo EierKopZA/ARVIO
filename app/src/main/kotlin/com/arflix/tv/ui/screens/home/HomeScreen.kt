@@ -113,6 +113,7 @@ import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.ui.components.MediaCard as ArvioMediaCard
 import com.arflix.tv.ui.components.TrailerPlayer
 import com.arflix.tv.ui.components.CardLayoutMode
+import com.arflix.tv.ui.components.AdaptiveMediaCard
 import com.arflix.tv.ui.components.AppTopBar
 import com.arflix.tv.ui.components.AppTopBarContentTopInset
 import com.arflix.tv.util.LocalDeviceType
@@ -249,7 +250,8 @@ fun HomeScreen(
     // Performance: Directly collect StateFlow instead of syncing to mutableStateMapOf
     // This avoids O(n) iteration on every logo cache update
     val cardLogoUrls by viewModel.cardLogoUrls.collectAsState()
-    val usePosterCards = rememberCardLayoutMode() == CardLayoutMode.POSTER
+    val cardLayoutMode = rememberCardLayoutMode()
+    val usePosterCards = cardLayoutMode == CardLayoutMode.POSTER
     val lifecycleOwner = LocalLifecycleOwner.current
     var suppressSelectUntilMs by remember { mutableLongStateOf(0L) }
 
@@ -581,6 +583,7 @@ fun HomeScreen(
             suppressSelectUntilMs = suppressSelectUntilMs,
             contentStartPadding = contentStartPadding,
             fastScrollThresholdMs = fastScrollThresholdMs,
+            cardLayoutMode = cardLayoutMode,
             usePosterCards = usePosterCards,
             isContextMenuOpen = showContextMenu,
             isMobile = isMobile,
@@ -1598,6 +1601,7 @@ private fun HomeInputLayer(
     suppressSelectUntilMs: Long,
     contentStartPadding: androidx.compose.ui.unit.Dp,
     fastScrollThresholdMs: Long,
+    cardLayoutMode: CardLayoutMode,
     usePosterCards: Boolean,
     isContextMenuOpen: Boolean,
     isMobile: Boolean = false,
@@ -1859,6 +1863,7 @@ private fun HomeInputLayer(
             focusState = focusState,
             contentStartPadding = contentStartPadding,
             fastScrollThresholdMs = fastScrollThresholdMs,
+            cardLayoutMode = cardLayoutMode,
             usePosterCards = usePosterCards,
             isMobile = isMobile,
             heroItem = heroItem,
@@ -1889,7 +1894,7 @@ private fun HomeRowsLayer(
     focusState: HomeFocusState,
     contentStartPadding: androidx.compose.ui.unit.Dp,
     fastScrollThresholdMs: Long,
-    usePosterCards: Boolean,
+    cardLayoutMode: CardLayoutMode,
     isMobile: Boolean = false,
     heroItem: MediaItem? = null,
     heroOverviewOverride: String? = null,
@@ -1899,6 +1904,7 @@ private fun HomeRowsLayer(
     onItemClick: (MediaItem) -> Unit,
     onItemLongClick: ((MediaItem, Boolean) -> Unit)? = null
 ) {
+    val usePosterCards = cardLayoutMode == CardLayoutMode.POSTER
     if (isMobile) {
         MobileHomeRowsLayer(
             categories = categories,
@@ -1916,7 +1922,7 @@ private fun HomeRowsLayer(
             focusState = focusState,
             contentStartPadding = contentStartPadding,
             fastScrollThresholdMs = fastScrollThresholdMs,
-            usePosterCards = usePosterCards,
+            cardLayoutMode = cardLayoutModeState,
             onItemClick = onItemClick
         )
     }
@@ -2058,7 +2064,7 @@ private fun TvHomeRowsLayer(
     focusState: HomeFocusState,
     contentStartPadding: androidx.compose.ui.unit.Dp,
     fastScrollThresholdMs: Long,
-    usePosterCards: Boolean,
+    cardLayoutMode: CardLayoutMode,
     onItemClick: (MediaItem) -> Unit
 ) {
     val currentRowIndex = focusState.currentRowIndex
@@ -2120,32 +2126,38 @@ private fun TvHomeRowsLayer(
                         animationSpec = tween(durationMillis = 300),
                         label = "homeRowAlpha"
                     ).value
-                    val rowHeight = if (usePosterCards) 240.dp else 190.dp
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(rowHeight)
-                            .clipToBounds()
-                            .graphicsLayer { alpha = rowAlpha }
-                    ) {
-                        ContentRow(
-                            category = category,
-                            cardLogoUrls = cardLogoUrls,
-                            isCurrentRow = !focusState.isSidebarFocused && index == focusState.currentRowIndex,
-                            isRanked = category.title.contains("Top 10", ignoreCase = true),
-                            usePosterCards = usePosterCards,
-                            startPadding = contentStartPadding,
-                            focusedItemIndex = if (!focusState.isSidebarFocused && index == focusState.currentRowIndex) focusState.currentItemIndex else -1,
-                            isFastScrolling = isFastScrolling,
-                            onItemClick = onItemClick,
-                            onItemFocused = { _, itemIdx ->
-                                focusState.currentRowIndex = index
-                                focusState.currentItemIndex = itemIdx
-                                focusState.isSidebarFocused = false
-                                focusState.lastNavEventTime = SystemClock.elapsedRealtime()
-                            }
-                        )
-                    }
+    val isAdaptive = cardLayoutMode == CardLayoutMode.ADAPTIVE
+    val usePosterCards = cardLayoutMode == CardLayoutMode.POSTER
+    val rowHeight = when {
+        isAdaptive -> 210.dp // Slightly taller for Adaptive titles
+        usePosterCards -> 240.dp 
+        else -> 190.dp
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(rowHeight)
+            .clipToBounds()
+            .graphicsLayer { alpha = rowAlpha }
+    ) {
+        ContentRow(
+            category = category,
+            cardLogoUrls = cardLogoUrls,
+            isCurrentRow = !focusState.isSidebarFocused && index == focusState.currentRowIndex,
+            isRanked = category.title.contains("Top 10", ignoreCase = true),
+            cardLayoutMode = cardLayoutMode,
+            startPadding = contentStartPadding,
+            focusedItemIndex = if (!focusState.isSidebarFocused && index == focusState.currentRowIndex) focusState.currentItemIndex else -1,
+            isFastScrolling = isFastScrolling,
+            onItemClick = onItemClick,
+            onItemFocused = { _, itemIdx ->
+                focusState.currentRowIndex = index
+                focusState.currentItemIndex = itemIdx
+                focusState.isSidebarFocused = false
+                focusState.lastNavEventTime = SystemClock.elapsedRealtime()
+            }
+        )
+    }
             }
             }
         }
@@ -2292,7 +2304,7 @@ private fun ContentRow(
     cardLogoUrls: Map<String, String>,
     isCurrentRow: Boolean,
     isRanked: Boolean = false,
-    usePosterCards: Boolean = false,
+    cardLayoutMode: CardLayoutMode = CardLayoutMode.LANDSCAPE,
     startPadding: androidx.compose.ui.unit.Dp = 12.dp,
     focusedItemIndex: Int,
     isFastScrolling: Boolean,
@@ -2303,7 +2315,11 @@ private fun ContentRow(
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
     val isContinueWatching = category.id == "continue_watching"
-    val itemWidth = if (usePosterCards) 125.dp else 210.dp
+    val itemWidth = when (cardLayoutMode) {
+        CardLayoutMode.POSTER -> 125.dp
+        CardLayoutMode.ADAPTIVE -> 125.dp // Base width is poster
+        else -> 210.dp
+    }
     val itemSpacing = 14.dp
     val availableWidthDp = configuration.screenWidthDp.dp - 56.dp - 12.dp
     val fallbackItemsPerPage = remember(configuration, density, itemWidth, itemSpacing) {
@@ -2532,13 +2548,22 @@ private fun ContentRow(
                             )
                         }
                     }
+                } else if (cardLayoutMode == CardLayoutMode.ADAPTIVE) {
+                    val cardLogoUrl = cardLogoUrls["${item.mediaType}_${item.id}"]
+                    AdaptiveMediaCard(
+                        item = item,
+                        height = 180.dp, // Matches base poster height well
+                        isFocusedOverride = itemIsFocused,
+                        onFocused = { onItemFocused(item, index) },
+                        onClick = { onItemClick(item) },
+                    )
                 } else {
                     // Standard Card - keep width aligned with scroll math
                     val cardLogoUrl = cardLogoUrls["${item.mediaType}_${item.id}"]
                     ArvioMediaCard(
                         item = item,
                         width = itemWidth,
-                        isLandscape = !usePosterCards,
+                        isLandscape = cardLayoutMode == CardLayoutMode.LANDSCAPE,
                         logoImageUrl = cardLogoUrl,
                         showProgress = isContinueWatching,
                         showTitle = false,

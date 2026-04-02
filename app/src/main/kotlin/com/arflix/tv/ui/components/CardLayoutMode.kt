@@ -14,11 +14,13 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 
 enum class CardLayoutMode {
     LANDSCAPE,
-    POSTER
+    POSTER,
+    ADAPTIVE
 }
 
 const val CARD_LAYOUT_MODE_LANDSCAPE = "Landscape"
 const val CARD_LAYOUT_MODE_POSTER = "Poster"
+const val CARD_LAYOUT_MODE_ADAPTIVE = "Adaptive"
 
 private val cardLayoutModeKey = stringPreferencesKey("card_layout_mode")
 private val activeProfileIdKey = stringPreferencesKey("active_profile_id")
@@ -28,18 +30,19 @@ private fun profileCardLayoutModeKey(profileId: String): Preferences.Key<String>
 }
 
 fun normalizeCardLayoutMode(raw: String?): String {
-    return if (raw?.trim()?.equals(CARD_LAYOUT_MODE_POSTER, ignoreCase = true) == true) {
-        CARD_LAYOUT_MODE_POSTER
-    } else {
-        CARD_LAYOUT_MODE_LANDSCAPE
+    val r = raw?.trim()?.lowercase() ?: return CARD_LAYOUT_MODE_LANDSCAPE
+    return when (r) {
+        "poster" -> CARD_LAYOUT_MODE_POSTER
+        "adaptive" -> CARD_LAYOUT_MODE_ADAPTIVE
+        else -> CARD_LAYOUT_MODE_LANDSCAPE
     }
 }
 
 fun parseCardLayoutMode(raw: String?): CardLayoutMode {
-    return if (normalizeCardLayoutMode(raw) == CARD_LAYOUT_MODE_POSTER) {
-        CardLayoutMode.POSTER
-    } else {
-        CardLayoutMode.LANDSCAPE
+    return when (normalizeCardLayoutMode(raw)) {
+        CARD_LAYOUT_MODE_POSTER -> CardLayoutMode.POSTER
+        CARD_LAYOUT_MODE_ADAPTIVE -> CardLayoutMode.ADAPTIVE
+        else -> CardLayoutMode.LANDSCAPE
     }
 }
 
