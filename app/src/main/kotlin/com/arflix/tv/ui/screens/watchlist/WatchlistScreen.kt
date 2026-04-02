@@ -36,6 +36,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
@@ -83,15 +84,24 @@ fun WatchlistScreen(
     onBack: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val usePosterCards = false
+    val logoUrls by viewModel.logoUrls.collectAsState()
+    val usePosterCards = com.arflix.tv.ui.components.rememberCardLayoutMode() == com.arflix.tv.ui.components.CardLayoutMode.POSTER
     val configuration = LocalConfiguration.current
     val isMobile = LocalDeviceType.current.isTouchDevice()
-    val gridColumns = if (isMobile) 2 else when {
+    val gridColumns = if (isMobile) 2 else if (usePosterCards) {
+        when {
+            configuration.screenWidthDp >= 2200 -> 8
+            configuration.screenWidthDp >= 1600 -> 7
+            else -> 6
+        }
+    } else when {
         configuration.screenWidthDp >= 2200 -> 5
         configuration.screenWidthDp >= 1600 -> 4
         else -> 3
     }
-    val cardWidth = if (isMobile) 160.dp else when (gridColumns) {
+    val cardWidth = if (usePosterCards) {
+        if (isMobile) 124.dp else 125.dp
+    } else if (isMobile) 160.dp else when (gridColumns) {
         5 -> 240.dp
         4 -> 250.dp
         else -> 230.dp
@@ -149,20 +159,32 @@ fun WatchlistScreen(
                 }
             }
             .focusable()
-            .onKeyEvent { event ->
+            .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown) {
+                    // Helper: transition focus from grid to sidebar
+                    fun moveToSidebar() {
+                        isSidebarFocused = true
+                        // Immediately steal focus from grid card to prevent card click on next Enter
+                        runCatching { rootFocusRequester.requestFocus() }
+                    }
+
                     when (event.key) {
                         Key.Back, Key.Escape -> {
                             if (isSidebarFocused) {
                                 onBack()
                             } else {
-                                isSidebarFocused = true
+                                moveToSidebar()
                             }
                             true
                         }
                         Key.DirectionLeft -> {
                             if (!isSidebarFocused) {
-                                true
+                                if (focusedGridIndex % gridColumns == 0) {
+                                    moveToSidebar()
+                                    true
+                                } else {
+                                    false
+                                }
                             } else {
                                 if (sidebarFocusIndex > 0) {
                                     sidebarFocusIndex = (sidebarFocusIndex - 1).coerceIn(0, maxSidebarIndex)
@@ -183,7 +205,15 @@ fun WatchlistScreen(
                         Key.DirectionUp -> {
                             if (isSidebarFocused) {
                                 true
-                            } else false
+                            } else {
+                                val firstVisibleIndex = gridState.firstVisibleItemIndex
+                                if (firstVisibleIndex == 0 && focusedGridIndex < gridColumns) {
+                                    moveToSidebar()
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
                         }
                         Key.DirectionDown -> {
                             if (isSidebarFocused) {
@@ -195,7 +225,13 @@ fun WatchlistScreen(
                                     }
                                 }
                                 true
-                            } else false
+                            } else {
+                                if (focusedGridIndex >= uiState.items.size - 1) {
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
                         }
                         Key.Enter, Key.DirectionCenter -> {
                             if (isSidebarFocused) {
@@ -307,12 +343,29 @@ fun WatchlistScreen(
                                         isSidebarFocused = false
                                     }
                                 }
+                                .onKeyEvent { event ->
+                                    if (event.type == KeyEventType.KeyDown) {
+                                        when (event.key) {
+                                            Key.Back, Key.Escape -> {
+                                                isSidebarFocused = true
+                                                scope.launch {
+                                                    delay(40)
+                                                    runCatching { rootFocusRequester.requestFocus() }
+                                                }
+                                                true
+                                            }
+                                            else -> false
+                                        }
+                                    } else false
+                                }
                         ) {
                             itemsIndexed(uiState.items) { index, item ->
+                                val logoUrl = logoUrls["${item.mediaType}_${item.id}"]
                                 MediaCard(
                                     item = item,
                                     width = cardWidth,
                                     isLandscape = !usePosterCards,
+                                    logoImageUrl = logoUrl,
                                     onFocused = { focusedGridIndex = index },
                                     onClick = { onNavigateToDetails(item.mediaType, item.id) }
                                 )

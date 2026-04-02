@@ -74,6 +74,7 @@ fun MediaCard(
     isLandscape: Boolean = true,
     logoImageUrl: String? = null,
     showProgress: Boolean = false,
+    showTitle: Boolean = true,
     titleMaxLines: Int = 1,
     subtitleMaxLines: Int = 1,
     isFocusedOverride: Boolean = false,
@@ -183,17 +184,18 @@ fun MediaCard(
                         .background(overlayBrush)
                 )
 
-                // Official logo/art overlay centered on landscape cards.
+                // Official logo/art overlay in bottom-left corner of landscape cards.
                 if (isLandscape && logoRequest != null) {
                     AsyncImage(
                         model = logoRequest,
                         contentDescription = "${item.title} logo",
                         contentScale = ContentScale.Fit,
+                        alignment = Alignment.BottomStart,
                         modifier = Modifier
-                            .align(Alignment.Center)
-                            .fillMaxWidth(0.62f)
-                            .height(56.dp)
-                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth(0.52f)
+                            .height(48.dp)
+                            .padding(start = 10.dp, bottom = 18.dp)
                     )
                 }
 
@@ -246,37 +248,39 @@ fun MediaCard(
             }
         }
 
-        Spacer(modifier = Modifier.height(ArvioSkin.spacing.x2))
+        if (showTitle) {
+            Spacer(modifier = Modifier.height(ArvioSkin.spacing.x2))
 
-        Text(
-            text = item.title,
-            style = ArvioSkin.typography.cardTitle,
-            color = if (visualFocused) {
-                ArvioSkin.colors.textPrimary
-            } else {
-                ArvioSkin.colors.textPrimary.copy(alpha = 0.85f)
-            },
-            maxLines = titleMaxLines,
-            overflow = TextOverflow.Ellipsis,
-        )
+            Text(
+                text = item.title,
+                style = ArvioSkin.typography.cardTitle,
+                color = if (visualFocused) {
+                    ArvioSkin.colors.textPrimary
+                } else {
+                    ArvioSkin.colors.textPrimary.copy(alpha = 0.85f)
+                },
+                maxLines = titleMaxLines,
+                overflow = TextOverflow.Ellipsis,
+            )
 
-        // Arctic Fuse 2 style: Show media type with genre-like format
-        val subtitle = remember(item.subtitle, item.mediaType) {
-            item.subtitle.ifBlank {
-                when (item.mediaType) {
-                    MediaType.TV -> "Drama / TV Series"
-                    MediaType.MOVIE -> "Action / Movie"
-                    else -> "Media"
+            // Arctic Fuse 2 style: Show media type with genre-like format
+            val subtitle = remember(item.subtitle, item.mediaType) {
+                item.subtitle.ifBlank {
+                    when (item.mediaType) {
+                        MediaType.TV -> "Drama / TV Series"
+                        MediaType.MOVIE -> "Action / Movie"
+                        else -> "Media"
+                    }
                 }
             }
+            Text(
+                text = subtitle,
+                style = ArvioSkin.typography.caption,
+                color = ArvioSkin.colors.textMuted.copy(alpha = 0.85f),
+                maxLines = subtitleMaxLines,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
-        Text(
-            text = subtitle,
-            style = ArvioSkin.typography.caption,
-            color = ArvioSkin.colors.textMuted.copy(alpha = 0.85f),
-            maxLines = subtitleMaxLines,
-            overflow = TextOverflow.Ellipsis,
-        )
     }
 }
 

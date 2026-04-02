@@ -119,6 +119,9 @@ import com.arflix.tv.ui.components.rememberCardLayoutMode
 import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.SkeletonDetailsPage
 import com.arflix.tv.ui.components.StreamSelector
+import com.arflix.tv.ui.components.TrailerPlayer
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.input.key.onKeyEvent
 import com.arflix.tv.ui.components.Toast
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
@@ -187,6 +190,7 @@ fun DetailsScreen(
     
     // Stream Selector state
     var showStreamSelector by remember { mutableStateOf(false) }
+    var showTrailerPlayer by remember { mutableStateOf(false) }
     var pendingAutoPlayRequest by remember { mutableStateOf<PendingAutoPlayRequest?>(null) }
     
     // Episode Context Menu state
@@ -284,8 +288,8 @@ fun DetailsScreen(
                     
                     when (event.key) {
                         Key.Back, Key.Escape -> {
-                            onBack()
-                            true
+                            if (showTrailerPlayer) { showTrailerPlayer = false; true }
+                            else { onBack(); true }
                         }
                         Key.DirectionLeft -> {
                             if (isSidebarFocused) {
@@ -485,19 +489,8 @@ fun DetailsScreen(
                                             viewModel.loadStreams(uiState.imdbId, ep?.seasonNumber, ep?.episodeNumber)
                                         }
                                         2 -> { // Trailer
-                                            uiState.trailerKey?.let { key ->
-                                                try {
-                                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=$key"))
-                                                    context.startActivity(intent)
-                                                } catch (e: Exception) {
-                                                    // Fallback: try vnd.youtube URI
-                                                    try {
-                                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube:$key"))
-                                                        context.startActivity(intent)
-                                                    } catch (e2: Exception) {
-                                                        // Could not open trailer
-                                                    }
-                                                }
+                                            uiState.trailerKey?.let {
+                                                showTrailerPlayer = true
                                             }
                                         }
                                         3 -> viewModel.toggleWatched(episodeIndex)
@@ -647,17 +640,7 @@ fun DetailsScreen(
                                 viewModel.loadStreams(uiState.imdbId, ep?.seasonNumber, ep?.episodeNumber)
                             }
                             2 -> { // Trailer
-                                uiState.trailerKey?.let { key ->
-                                    try {
-                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=$key"))
-                                        context.startActivity(intent)
-                                    } catch (e: Exception) {
-                                        try {
-                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube:$key"))
-                                            context.startActivity(intent)
-                                        } catch (_: Exception) {}
-                                    }
-                                }
+                                uiState.trailerKey?.let { showTrailerPlayer = true }
                             }
                             3 -> viewModel.toggleWatched(episodeIndex)
                             4 -> viewModel.toggleWatchlist()
@@ -718,6 +701,22 @@ fun DetailsScreen(
             }
         )
         
+        // In-app Trailer Player (fullscreen overlay)
+        if (showTrailerPlayer && uiState.trailerKey != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+                    .zIndex(50f)
+            ) {
+                TrailerPlayer(
+                    youtubeKey = uiState.trailerKey!!,
+                    modifier = Modifier.fillMaxSize(),
+                    delayMs = 0L
+                )
+            }
+        }
+
         // Stream Selector Modal
         StreamSelector(
             isVisible = showStreamSelector,
@@ -726,6 +725,13 @@ fun DetailsScreen(
             isLoading = uiState.isLoadingStreams,
             hasStreamingAddons = uiState.hasStreamingAddons,
             onSelect = { stream ->
+                if (isPendingDebridStream(stream)) {
+                    viewModel.showToast(
+                        "This debrid torrent is still being downloaded. Try another source or wait a bit.",
+                        ToastType.ERROR
+                    )
+                    return@StreamSelector
+                }
                 showStreamSelector = false
                 val ep = uiState.episodes.getOrNull(episodeIndex)
                 onNavigateToPlayer(
@@ -822,6 +828,18 @@ private fun qualityScoreForAutoPlay(quality: String): Int {
     }
 }
 
+/** Score quality from ALL stream text (source + quality + addonName) for more accurate detection */
+private fun qualityScoreForStream(stream: com.arflix.tv.data.model.StreamSource): Int {
+    val combined = listOfNotNull(stream.quality, stream.source, stream.addonName).joinToString(" ")
+    return when {
+        combined.contains("2160p", ignoreCase = true) || Regex("\\b4[kK]\\b").containsMatchIn(combined) -> 4
+        combined.contains("1080p", ignoreCase = true) -> 3
+        combined.contains("720p", ignoreCase = true) -> 2
+        combined.contains("480p", ignoreCase = true) -> 1
+        else -> 0 // Truly unknown
+    }
+}
+
 private fun minQualityThreshold(value: String): Int {
     return when (value.trim().lowercase()) {
         "720p", "hd" -> 2
@@ -833,7 +851,26 @@ private fun minQualityThreshold(value: String): Int {
 
 private fun isAutoPlayableStream(stream: com.arflix.tv.data.model.StreamSource): Boolean {
     val url = stream.url?.trim().orEmpty()
-    return url.startsWith("http", ignoreCase = true)
+    if (!url.startsWith("http", ignoreCase = true)) return false
+    return !isPendingDebridStream(stream)
+}
+
+private fun isPendingDebridStream(stream: com.arflix.tv.data.model.StreamSource): Boolean {
+    val text = listOfNotNull(stream.source, stream.addonName, stream.quality, stream.url)
+        .joinToString(" ")
+        .lowercase()
+    return listOf(
+        "torrent being downloaded",
+        "being downloaded",
+        "still downloading",
+        "queued",
+        "not cached",
+        "uncached",
+        "cache pending",
+        "caching",
+        "processing torrent",
+        "download in progress"
+    ).any { text.contains(it) }
 }
 
 private fun handleLeft(
@@ -1068,12 +1105,12 @@ private fun DetailsContent(
                     Text(
                         text = item.overview,
                         style = ArflixTypography.body.copy(
-                            fontSize = 13.sp,
-                            lineHeight = 20.sp,
+                            fontSize = 12.sp,
+                            lineHeight = 18.sp,
                             fontWeight = FontWeight.Normal
                         ),
-                        color = Color.White.copy(alpha = 0.85f),
-                        maxLines = 3,
+                        color = Color.White.copy(alpha = 0.88f),
+                        maxLines = 4,
                         overflow = TextOverflow.Ellipsis
                     )
 
@@ -1483,19 +1520,19 @@ private fun DetailsContent(
 
                 Box(
                     modifier = Modifier
-                        .width(560.dp)
+                        .width(360.dp)
                         .height(overviewMaxHeight)
                 ) {
                     Text(
                         text = displayOverview,
                         style = ArflixTypography.body.copy(
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            lineHeight = 20.sp,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Normal,
+                            lineHeight = 17.sp,
                             shadow = textShadow
                         ),
-                        color = Color.White,
-                        maxLines = 3,
+                        color = Color.White.copy(alpha = 0.9f),
+                        maxLines = 4,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
@@ -1829,7 +1866,7 @@ private fun DetailsContent(
                         isCurrentRow = focusSectionForUi == FocusSection.SIMILAR,
                         focusedItemIndex = similarIndex,
                         totalItems = similar.size,
-                        itemWidth = if (usePosterCards) 91.dp else 180.dp,
+                        itemWidth = if (usePosterCards) 126.dp else 180.dp,
                         itemSpacing = 14.dp
                     )
 
@@ -1848,7 +1885,7 @@ private fun DetailsContent(
                             state = similarRowState,
                             contentPadding = PaddingValues(
                                 start = contentStartPadding,
-                                end = if (usePosterCards) 112.dp else 210.dp
+                                end = if (usePosterCards) 140.dp else 210.dp
                             ),
                             horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
@@ -2997,10 +3034,12 @@ private fun SimilarMediaCard(
     val yearSuffix = item.year.takeIf { it.isNotBlank() }?.let { " | $it" }.orEmpty()
     MediaCard(
         item = item.copy(subtitle = "$mediaTypeLabel$yearSuffix"),
-        width = if (usePosterCards) 105.dp else 210.dp,
+        width = if (usePosterCards) 126.dp else 210.dp,
         isLandscape = !usePosterCards,
         logoImageUrl = logoImageUrl,
         showProgress = false,
+        titleMaxLines = if (usePosterCards) 2 else 1,
+        subtitleMaxLines = 1,
         isFocusedOverride = isFocused,
         enableSystemFocus = false,
         onFocused = { },

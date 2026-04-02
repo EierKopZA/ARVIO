@@ -1211,16 +1211,26 @@ class TraktRepository @Inject constructor(
                                 1
                             }
 
-                            if (isIncomplete && effectiveCompleted >= 1) {
+                            // Validate next episode actually exists:
+                            // Check that the season has aired episodes in Trakt's progress data
+                            val nextEpValid = if (nextEp != null && progress.seasons != null) {
+                                val seasonData = progress.seasons.find { it.number == nextEp.season }
+                                seasonData != null && seasonData.aired > 0
+                            } else {
+                                nextEp != null
+                            }
+                            val validNextEp = if (nextEpValid) nextEp else null
+
+                            if (isIncomplete && effectiveCompleted >= 1 && validNextEp != null) {
                                 ContinueWatchingCandidate(
                                     item = ContinueWatchingItem(
                                         id = tmdbId,
                                         title = show.show.title,
                                         mediaType = MediaType.TV,
                                         progress = syntheticProgress,
-                                        season = nextEp?.season,
-                                        episode = nextEp?.number,
-                                        episodeTitle = nextEp?.title,
+                                        season = validNextEp.season,
+                                        episode = validNextEp.number,
+                                        episodeTitle = validNextEp.title,
                                         year = show.show.year?.toString() ?: ""
                                     ),
                                     lastActivityAt = show.lastWatchedAt ?: ""
@@ -1360,7 +1370,15 @@ class TraktRepository @Inject constructor(
                             )
                         } else {
                             val details = tmdbApi.getTvDetails(item.id, Constants.TMDB_API_KEY)
-                            item.copy(
+                            // Validate next episode season exists on TMDB
+                            // Trakt may return S2E1 for a show that only has 1 season
+                            val validatedItem = if (item.season != null && item.season > details.numberOfSeasons) {
+                                // Next episode season doesn't exist — skip this item
+                                null
+                            } else {
+                                item
+                            }
+                            validatedItem?.copy(
                                 backdropPath = details.backdropPath?.let { "${Constants.BACKDROP_BASE_LARGE}$it" },
                                 posterPath = details.posterPath?.let { "${Constants.IMAGE_BASE}$it" },
                                 overview = details.overview ?: "",
@@ -1369,12 +1387,26 @@ class TraktRepository @Inject constructor(
                             )
                         }
                     } catch (e: Exception) {
+                        // Keep local/cached item if TMDB hydration fails - don't lose user's continue watching entry
+                        System.err.println("TraktRepo:getCW: TMDB hydration failed for ${candidate.item.title}: ${e.message}")
                         candidate.item
                     }
                 }
             }
 
-            val hydratedItems = hydrationTasks.awaitAll()
+            val hydratedItems = hydrationTasks.awaitAll().filterNotNull()
+            // Ensure we never lose items due to TMDB validation failures - prioritize local status
+            // If hydration returned empty despite having candidates, fall back to local data
+            if (hydratedItems.isEmpty() && topCandidates.isNotEmpty()) {
+                // Map candidates back to items without TMDB enrichment
+                // Filter out items with null season/episode (already validated at candidate creation)
+                val fallbackItems = topCandidates.map { it.item }
+                    .filter { it.mediaType != MediaType.TV || (it.season != null && it.episode != null) }
+                cachedContinueWatching = fallbackItems
+                lastContinueWatchingFetch = System.currentTimeMillis()
+                persistContinueWatchingCache(fallbackItems)
+                return@coroutineScope fallbackItems
+            }
 
         val resolvedItems = if (hydratedItems.isNotEmpty()) {
             cachedContinueWatching = hydratedItems

@@ -49,6 +49,10 @@ class RealtimeSyncManager @Inject constructor(
     @Volatile
     private var lastPushTimestamp = 0L
 
+    // User JWT for authenticated Realtime subscriptions
+    @Volatile
+    private var currentAccessToken: String? = null
+
     fun markPush() {
         lastPushTimestamp = System.currentTimeMillis()
     }
@@ -89,6 +93,22 @@ class RealtimeSyncManager @Inject constructor(
             return
         }
 
+        // Fetch user access token for authenticated Realtime subscriptions
+        // Without the JWT, Supabase RLS blocks the postgres_changes subscription
+        scope.launch {
+            val accessToken = authRepository.getAccessToken()
+            if (accessToken.isNullOrBlank()) {
+                Log.w(TAG, "No access token, skipping WebSocket connection")
+                scheduleReconnect()
+                return@launch
+            }
+            connectWebSocketWithToken(userId, accessToken)
+        }
+    }
+
+    private fun connectWebSocketWithToken(userId: String, accessToken: String) {
+        if (!isRunning.get()) return
+
         val supabaseUrl = Constants.SUPABASE_URL
             .replace("https://", "wss://")
             .replace("http://", "ws://")
@@ -100,6 +120,9 @@ class RealtimeSyncManager @Inject constructor(
             .build()
 
         val request = Request.Builder().url(wsUrl).build()
+
+        // Store the token so joinChannel can include it
+        currentAccessToken = accessToken
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -133,6 +156,7 @@ class RealtimeSyncManager @Inject constructor(
 
     private fun joinChannel(ws: WebSocket, userId: String) {
         // Subscribe to postgres_changes on account_sync_state table filtered by user_id
+        // access_token is required for Supabase RLS to authenticate the subscription
         val joinMsg = JSONObject().apply {
             put("topic", "realtime:account_sync")
             put("event", "phx_join")
@@ -147,6 +171,7 @@ class RealtimeSyncManager @Inject constructor(
                         })
                     })
                 })
+                currentAccessToken?.let { put("access_token", it) }
             })
             put("ref", msgRef.getAndIncrement().toString())
         }

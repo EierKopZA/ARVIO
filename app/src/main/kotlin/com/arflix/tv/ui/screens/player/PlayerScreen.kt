@@ -1711,10 +1711,7 @@ fun PlayerScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                PulsingLogo(
-                    logoUrl = uiState.logoUrl,
-                    title = uiState.title
-                )
+                PulsingLogo(logoUrl = uiState.logoUrl, title = uiState.title)
             }
         }
 
@@ -1825,53 +1822,24 @@ fun PlayerScreen(
                     }
 
                     // Right side - Ends At + Clock
-                    Column(
-                        horizontalAlignment = Alignment.End,
-                        modifier = Modifier.padding(end = 8.dp)
-                    ) {
+                    Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(end = 8.dp)) {
                         val currentTime = remember { mutableStateOf("") }
                         val endsAtTime = remember { mutableStateOf("") }
-
                         LaunchedEffect(duration, currentPosition) {
                             while (true) {
                                 val now = System.currentTimeMillis()
                                 val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
                                 currentTime.value = sdf.format(java.util.Date(now))
-
                                 if (duration > 0 && currentPosition >= 0) {
                                     val remainingMs = (duration - currentPosition).coerceAtLeast(0L)
-                                    val endTime = now + remainingMs
-                                    endsAtTime.value = sdf.format(java.util.Date(endTime))
-                                } else {
-                                    endsAtTime.value = ""
-                                }
-
+                                    endsAtTime.value = sdf.format(java.util.Date(now + remainingMs))
+                                } else { endsAtTime.value = "" }
                                 kotlinx.coroutines.delay(1000)
                             }
                         }
-
-                        Text(
-                            text = currentTime.value,
-                            style = ArflixTypography.body.copy(
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Medium
-                            ),
-                            color = TextSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-
+                        Text(currentTime.value, style = ArflixTypography.body.copy(fontSize = 18.sp, fontWeight = FontWeight.Medium), color = TextSecondary, maxLines = 1)
                         if (endsAtTime.value.isNotBlank()) {
-                            Text(
-                                text = "Ends at ${endsAtTime.value}",
-                                style = ArflixTypography.caption.copy(
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Normal
-                                ),
-                                color = TextSecondary.copy(alpha = 0.7f),
-                                maxLines = 1,
-                                modifier = Modifier.padding(top = 2.dp)
-                            )
+                            Text("Ends at ${endsAtTime.value}", style = ArflixTypography.caption.copy(fontSize = 12.sp), color = TextSecondary.copy(alpha = 0.7f), maxLines = 1, modifier = Modifier.padding(top = 2.dp))
                         }
                     }
                 }

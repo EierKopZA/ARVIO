@@ -3,7 +3,10 @@ package com.arflix.tv.ui.screens.watchlist
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arflix.tv.data.model.MediaItem
+import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.repository.CloudSyncRepository
+import com.arflix.tv.data.repository.MediaRepository
+import com.arflix.tv.data.repository.TraktRepository
 import com.arflix.tv.data.repository.WatchlistRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,17 +31,24 @@ data class WatchlistUiState(
 @HiltViewModel
 class WatchlistViewModel @Inject constructor(
     private val watchlistRepository: WatchlistRepository,
-    private val cloudSyncRepository: CloudSyncRepository
+    private val cloudSyncRepository: CloudSyncRepository,
+    private val traktRepository: TraktRepository,
+    private val mediaRepository: MediaRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(WatchlistUiState())
     val uiState: StateFlow<WatchlistUiState> = _uiState.asStateFlow()
+
+    private val _logoUrls = MutableStateFlow<Map<String, String>>(emptyMap())
+    val logoUrls: StateFlow<Map<String, String>> = _logoUrls.asStateFlow()
 
     init {
         // Show cached items instantly, then refresh in background
         loadWatchlistInstant()
         // Also observe the repository's StateFlow for live updates
         observeWatchlistChanges()
+        // Sync Trakt watchlist → local (merge any items added via Trakt)
+        syncTraktWatchlist()
     }
 
     private fun observeWatchlistChanges() {
@@ -49,6 +59,22 @@ class WatchlistViewModel @Inject constructor(
                         items = items,
                         isLoading = false
                     )
+                    fetchLogos(items)
+                }
+            }
+        }
+    }
+
+    private fun fetchLogos(items: List<MediaItem>) {
+        viewModelScope.launch {
+            val currentLogos = _logoUrls.value.toMutableMap()
+            for (item in items) {
+                val key = "${item.mediaType}_${item.id}"
+                if (key in currentLogos) continue
+                val url = runCatching { mediaRepository.getLogoUrl(item.mediaType, item.id) }.getOrNull()
+                if (url != null) {
+                    currentLogos[key] = url
+                    _logoUrls.value = currentLogos.toMap()
                 }
             }
         }
@@ -120,12 +146,45 @@ class WatchlistViewModel @Inject constructor(
                 )
                 // Then sync to backend
                 watchlistRepository.removeFromWatchlist(item.mediaType, item.id)
+                // Also remove from Trakt if connected
+                runCatching { traktRepository.removeFromWatchlist(item.mediaType, item.id) }
                 runCatching { cloudSyncRepository.pushToCloud() }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     toastMessage = "Failed to remove from watchlist",
                     toastType = ToastType.ERROR
                 )
+            }
+        }
+    }
+
+    /**
+     * Pull Trakt watchlist and merge new items into local watchlist.
+     * Items on Trakt but not local get added; local-only items are preserved.
+     */
+    private fun syncTraktWatchlist() {
+        viewModelScope.launch {
+            try {
+                val traktItems = traktRepository.getWatchlist()
+                if (traktItems.isEmpty()) return@launch
+
+                // Merge: add any Trakt items not already in local watchlist
+                var addedNew = false
+                for (item in traktItems) {
+                    val inLocal = watchlistRepository.isInWatchlist(item.mediaType, item.id)
+                    if (!inLocal) {
+                        watchlistRepository.addToWatchlist(item.mediaType, item.id, item)
+                        addedNew = true
+                    }
+                }
+
+                // Only refresh if we actually added new items (avoids clearing cache)
+                if (addedNew) {
+                    val items = watchlistRepository.refreshWatchlistItems()
+                    _uiState.value = _uiState.value.copy(items = items, isLoading = false)
+                }
+            } catch (_: Exception) {
+                // Trakt sync is best-effort, don't show errors
             }
         }
     }

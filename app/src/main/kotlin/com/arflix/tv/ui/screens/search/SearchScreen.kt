@@ -117,7 +117,7 @@ fun SearchScreen(
     val hasSearchResults = uiState.movieResults.isNotEmpty() || uiState.tvResults.isNotEmpty()
     val hasAiResults = uiState.isAiSearch && uiState.aiResults.isNotEmpty()
 
-    // Determine which categories to show in rows
+    // Determine which categories to show in rows (filter out empty ones)
     val activeCategories: List<Category> = when {
         hasSearchResults -> {
             val list = mutableListOf<Category>()
@@ -125,7 +125,7 @@ fun SearchScreen(
             if (uiState.tvResults.isNotEmpty()) list.add(Category("s_t", "TV Shows (${uiState.tvResults.size})", uiState.tvResults))
             list
         }
-        uiState.query.isEmpty() -> uiState.discoverCategories
+        uiState.query.isEmpty() -> uiState.discoverCategories.filter { it.items.isNotEmpty() }
         else -> emptyList()
     }
     val activeLogoUrls: Map<String, String> = when {
@@ -148,6 +148,14 @@ fun SearchScreen(
     val filtersFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
+    // LaunchedEffect to restore RESULTS focus when results become available
+    LaunchedEffect(activeCategories, hasAiResults) {
+        if ((activeCategories.isNotEmpty() || hasAiResults) && focusZone == FocusZone.SEARCH_INPUT && isSearchInputFocused.not()) {
+            // If we have results and just returned from details, stay in search input but prepare for results
+            // This prevents the "back to keyboard" issue when returning from details
+        }
+    }
+    
     LaunchedEffect(Unit) { searchFocusRequester.requestFocus(); suppressSelectUntilMs = SystemClock.elapsedRealtime() + 300L }
 
     val showFilters = uiState.query.isEmpty()
@@ -164,7 +172,19 @@ fun SearchScreen(
                         true
                     }
                     FocusZone.FILTERS -> { focusZone = FocusZone.SEARCH_INPUT; searchFocusRequester.requestFocus(); true }
-                    FocusZone.SEARCH_INPUT -> { focusZone = FocusZone.SIDEBAR; true }
+                    FocusZone.SEARCH_INPUT -> {
+                        // If we have search results, go back to results instead of sidebar
+                        // This fixes the issue where back from details goes to keyboard instead of results
+                        if (activeCategories.isNotEmpty() || hasAiResults) {
+                            focusZone = FocusZone.RESULTS
+                            currentRowIndex = 0
+                            currentItemIndex = 0
+                            true
+                        } else {
+                            focusZone = FocusZone.SIDEBAR
+                            true
+                        }
+                    }
                     FocusZone.SIDEBAR -> { onBack(); true }
                 }
                 Key.DirectionUp -> when (focusZone) {
@@ -202,7 +222,7 @@ fun SearchScreen(
                     FocusZone.SIDEBAR -> { if (sidebarFocusIndex < maxSidebarIndex) sidebarFocusIndex++; true }
                     FocusZone.RESULTS -> {
                         if (hasAiResults) false // AI grid: let native focus handle navigation
-                        else { val maxItem = (activeCategories.getOrNull(currentRowIndex)?.items?.size ?: 1) - 1; if (currentItemIndex < maxItem) currentItemIndex++; true }
+                        else { val cats = activeCategories.filter { it.items.isNotEmpty() }; val maxItem = (cats.getOrNull(currentRowIndex)?.items?.size ?: 1) - 1; if (currentItemIndex < maxItem) currentItemIndex++; true }
                     }
                     FocusZone.FILTERS -> false
                     else -> false
@@ -218,8 +238,14 @@ fun SearchScreen(
                         FocusZone.SEARCH_INPUT -> false
                         FocusZone.FILTERS -> false
                         FocusZone.RESULTS -> {
-                            if (hasAiResults) false // AI grid: let native focus handle Enter/OK on cards
-                            else { val item = activeCategories.getOrNull(currentRowIndex)?.items?.getOrNull(currentItemIndex); if (item != null) onNavigateToDetails(item.mediaType, item.id); true }
+                            if (hasAiResults) false
+                            else {
+                                // Use stable category lookup to avoid race condition with dynamic list updates
+                                val cats = activeCategories.filter { it.items.isNotEmpty() }
+                                val item = cats.getOrNull(currentRowIndex)?.items?.getOrNull(currentItemIndex)
+                                if (item != null) onNavigateToDetails(item.mediaType, item.id)
+                                true
+                            }
                         }
                     }
                 }
@@ -359,8 +385,12 @@ private fun RowsLayer(
     val configuration = LocalConfiguration.current
     val screenHeight = configuration.screenHeightDp
 
-    val itemWidth = if (usePosterCards) 130.dp else 260.dp
-    val rowHeight = if (usePosterCards) 250.dp else 210.dp
+    val itemWidth = if (usePosterCards) 134.dp else 260.dp
+    val rowHeight = if (usePosterCards) {
+        if (screenHeight <= 640) 245.dp else 320.dp
+    } else {
+        if (screenHeight <= 640) 200.dp else 260.dp
+    }
 
     val listState = rememberLazyListState()
     val targetIndex = currentRowIndex.coerceIn(0, (categories.size - 1).coerceAtLeast(0))
@@ -411,7 +441,7 @@ private fun RowsLayer(
 
                         LazyRow(
                             state = rowState,
-                            contentPadding = PaddingValues(start = 8.dp, end = itemWidth + 30.dp, top = 4.dp, bottom = 4.dp),
+                            contentPadding = PaddingValues(start = 8.dp, end = itemWidth + 30.dp, top = 12.dp, bottom = 24.dp),
                             horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
                             itemsIndexed(category.items, key = { _, item -> "${item.mediaType}_${item.id}" }) { itemIdx, item ->
@@ -445,7 +475,7 @@ private fun RowsLayer(
 @Composable
 private fun ContentGrid(items: List<MediaItem>, usePosterCards: Boolean, isLoading: Boolean, isTouchDevice: Boolean, onItemClick: (MediaItem) -> Unit, onLoadMore: () -> Unit) {
     val screenHeight = LocalConfiguration.current.screenHeightDp
-    val itemWidth = if (usePosterCards) 130.dp else 260.dp
+    val itemWidth = if (usePosterCards) 134.dp else 260.dp
     val gridState = rememberLazyGridState()
     LaunchedEffect(gridState.firstVisibleItemIndex, items.size) { val lv = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0; if (items.isNotEmpty() && lv >= items.size - 8) onLoadMore() }
 

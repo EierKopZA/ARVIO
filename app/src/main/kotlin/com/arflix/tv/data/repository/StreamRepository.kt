@@ -1030,11 +1030,14 @@ class StreamRepository @Inject constructor(
                     )
                 } ?: emptyList()
 
+                val torrentName = stream.getTorrentName()
+                val qualityFromTorrent = parseQuality(torrentName)
+
                 StreamSource(
-                    source = stream.getTorrentName(),
+                    source = torrentName,
                     addonName = addon.name + " - " + stream.getSourceName(),
                     addonId = addon.id,
-                    quality = stream.getQuality(),
+                    quality = if (qualityFromTorrent != "Unknown") qualityFromTorrent else stream.getQuality(),
                     size = stream.getSize(),
                     sizeBytes = parseSizeToBytes(stream.getSize()),
                     url = streamUrl,
@@ -1748,6 +1751,16 @@ class StreamRepository @Inject constructor(
             quality.contains("720p", ignoreCase = true) -> 60
             quality.contains("480p", ignoreCase = true) -> 40
             else -> 20
+        }
+    }
+
+    private fun parseQuality(text: String): String {
+        return when {
+            text.contains("2160p", ignoreCase = true) || text.contains("4K", ignoreCase = true) -> "4K"
+            text.contains("1080p", ignoreCase = true) -> "1080p"
+            text.contains("720p", ignoreCase = true) -> "720p"
+            text.contains("480p", ignoreCase = true) -> "480p"
+            else -> "Unknown"
         }
     }
 

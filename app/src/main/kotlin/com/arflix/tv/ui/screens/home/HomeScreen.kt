@@ -111,6 +111,7 @@ import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.ui.components.MediaCard as ArvioMediaCard
+import com.arflix.tv.ui.components.TrailerPlayer
 import com.arflix.tv.ui.components.CardLayoutMode
 import com.arflix.tv.ui.components.AppTopBar
 import com.arflix.tv.ui.components.AppTopBarContentTopInset
@@ -301,12 +302,13 @@ fun HomeScreen(
     val heroLeftScrim = remember {
         Brush.horizontalGradient(
             colorStops = arrayOf(
-                0.0f to Color.Black.copy(alpha = 0.85f),
-                0.15f to Color.Black.copy(alpha = 0.75f),
-                0.25f to Color.Black.copy(alpha = 0.55f),
-                0.35f to Color.Black.copy(alpha = 0.35f),
-                0.45f to Color.Black.copy(alpha = 0.15f),
-                0.55f to Color.Transparent,
+                0.0f to Color.Black.copy(alpha = 0.95f),
+                0.12f to Color.Black.copy(alpha = 0.88f),
+                0.22f to Color.Black.copy(alpha = 0.72f),
+                0.32f to Color.Black.copy(alpha = 0.50f),
+                0.42f to Color.Black.copy(alpha = 0.30f),
+                0.55f to Color.Black.copy(alpha = 0.10f),
+                0.70f to Color.Transparent,
                 1.0f to Color.Transparent
             )
         )
@@ -314,9 +316,10 @@ fun HomeScreen(
     val heroTopScrim = remember {
         Brush.verticalGradient(
             colorStops = arrayOf(
-                0.0f to Color.Black.copy(alpha = 0.5f),
-                0.05f to Color.Black.copy(alpha = 0.25f),
-                0.12f to Color.Transparent,
+                0.0f to Color.Black.copy(alpha = 0.7f),
+                0.06f to Color.Black.copy(alpha = 0.45f),
+                0.15f to Color.Black.copy(alpha = 0.15f),
+                0.25f to Color.Transparent,
                 1.0f to Color.Transparent
             )
         )
@@ -545,6 +548,14 @@ fun HomeScreen(
                         }
                     },
                     update = { pv -> pv.player = heroExoPlayer },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            // YouTube trailer auto-play (muted, no controls)
+            if (heroVideoUrl == null && uiState.trailerAutoPlay && uiState.heroTrailerKey != null) {
+                TrailerPlayer(
+                    youtubeKey = uiState.heroTrailerKey!!,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -1019,22 +1030,22 @@ private fun HeroSection(
                     .trim()
                     .ifBlank { "No description available." }
 
-                val overviewMaxHeight = 66.dp
+                val overviewMaxHeight = 72.dp
                 Box(
                     modifier = Modifier
-                        .width(560.dp)
+                        .width(360.dp)
                         .height(overviewMaxHeight)
                 ) {
                     Text(
                         text = displayOverview,
                         style = ArflixTypography.body.copy(
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            lineHeight = 20.sp,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Normal,
+                            lineHeight = 17.sp,
                             shadow = textShadow
                         ),
-                        color = Color.White,
-                        maxLines = 3,
+                        color = Color.White.copy(alpha = 0.9f),
+                        maxLines = 4,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
@@ -1921,7 +1932,7 @@ private fun MobileHomeRowsLayer(
     onItemClick: (MediaItem) -> Unit,
     onItemLongClick: ((MediaItem, Boolean) -> Unit)? = null
 ) {
-    val mobileItemWidth = if (usePosterCards) 120.dp else 200.dp
+    val mobileItemWidth = if (usePosterCards) 124.dp else 200.dp
     val mobileItemSpacing = 10.dp
 
     LazyColumn(
@@ -2006,6 +2017,7 @@ private fun MobileHomeRowsLayer(
                                         isLandscape = !usePosterCards,
                                         logoImageUrl = cardLogoUrl,
                                         showProgress = false,
+                                        showTitle = false,
                                         isFocusedOverride = false,
                                         enableSystemFocus = false,
                                         onFocused = {},
@@ -2022,6 +2034,7 @@ private fun MobileHomeRowsLayer(
                                 isLandscape = !usePosterCards,
                                 logoImageUrl = cardLogoUrl,
                                 showProgress = isContinueWatching,
+                                showTitle = false,
                                 isFocusedOverride = false,
                                 enableSystemFocus = false,
                                 onFocused = {},
@@ -2106,10 +2119,11 @@ private fun TvHomeRowsLayer(
                         animationSpec = tween(durationMillis = 300),
                         label = "homeRowAlpha"
                     ).value
+                    val rowHeight = if (usePosterCards) 240.dp else 190.dp
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(220.dp)
+                            .height(rowHeight)
                             .clipToBounds()
                             .graphicsLayer { alpha = rowAlpha }
                     ) {
@@ -2288,7 +2302,7 @@ private fun ContentRow(
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
     val isContinueWatching = category.id == "continue_watching"
-    val itemWidth = if (usePosterCards) 105.dp else 210.dp
+    val itemWidth = if (usePosterCards) 125.dp else 210.dp
     val itemSpacing = 14.dp
     val availableWidthDp = configuration.screenWidthDp.dp - 56.dp - 12.dp
     val fallbackItemsPerPage = remember(configuration, density, itemWidth, itemSpacing) {
@@ -2476,17 +2490,21 @@ private fun ContentRow(
                 val itemIsFocused = currentIsCurrentRow && index == currentFocusedIndex
                 if (isRanked) {
                     // RANKED ITEM: Number + Card
+                    val rankedCardWidth = if (usePosterCards) 100.dp else 140.dp
+                    val rankedBoxWidth = if (usePosterCards) 165.dp else 210.dp
+                    val rankedBoxHeight = if (usePosterCards) 176.dp else 140.dp
+                    val rankFontSize = if (usePosterCards) 80.sp else 100.sp
                     Box(
                         modifier = Modifier
-                            .width(210.dp)  // Smaller to fit 4.5 cards
-                            .height(140.dp),
+                            .width(rankedBoxWidth)
+                            .height(rankedBoxHeight),
                         contentAlignment = Alignment.BottomStart
                     ) {
                         // Large Rank Number
                         Text(
                             text = "${index + 1}",
                             style = TextStyle(
-                                fontSize = 100.sp,  // Smaller rank numbers
+                                fontSize = rankFontSize,
                                 fontWeight = FontWeight.Black,
                                 color = RankNumberColor,
                                 letterSpacing = (-6).sp
@@ -2497,14 +2515,15 @@ private fun ContentRow(
                         )
 
                         // The Card (offset to right)
-                        Box(modifier = Modifier.padding(start = 60.dp)) {
+                        Box(modifier = Modifier.padding(start = if (usePosterCards) 44.dp else 60.dp)) {
                             val cardLogoUrl = cardLogoUrls["${item.mediaType}_${item.id}"]
                             ArvioMediaCard(
                                 item = item,
-                                width = 140.dp,  // Smaller cards
+                                width = rankedCardWidth,
                                 isLandscape = !usePosterCards,
                                 logoImageUrl = cardLogoUrl,
                                 showProgress = false,
+                                showTitle = false,
                                 isFocusedOverride = itemIsFocused,
                                 enableSystemFocus = false,
                                 onFocused = { onItemFocused(item, index) },
@@ -2521,6 +2540,7 @@ private fun ContentRow(
                         isLandscape = !usePosterCards,
                         logoImageUrl = cardLogoUrl,
                         showProgress = isContinueWatching,
+                        showTitle = false,
                         isFocusedOverride = itemIsFocused,
                         enableSystemFocus = false,
                         onFocused = { onItemFocused(item, index) },

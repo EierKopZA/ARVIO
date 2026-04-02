@@ -7,6 +7,34 @@ All notable changes to this project are documented in this file.
 ### Added
 - (Nothing yet)
 
+## [1.9.7] - 2026-04-01
+
+### Added
+- Trakt watchlist two-way sync: items added in ARVIO sync to Trakt and vice versa
+- Clearlogo overlays on watchlist cards
+- Clearlogo repositioned to bottom-left corner on all landscape cards for a cleaner look
+- Watchlist preloads on app startup for instant display
+- Home screen categories cached for instant re-navigation
+- Automated release pipeline (GitHub Actions: build, GitHub Release, Play Store, Discord)
+
+### Improved
+- Player buttons: focused state now shows white filled circle with black icon
+- Subtitle system: only the selected subtitle is loaded instead of all 30+, significantly faster playback startup
+- Non-English subtitles (OpenSubtitles) now work reliably across all languages
+- Poster cards 10% larger on home screen with proper row spacing
+- Watchlist poster cards sized consistently with home screen
+- Watchlist grid columns optimized for poster layout (6-8 columns)
+- Home screen card titles removed (clearlogo on card is sufficient)
+- Real-time cloud sync fixed: WebSocket now authenticates with user JWT for instant cross-device updates
+- Addon input modal: D-pad navigation fully working after typing/pasting URL
+- Addon save reliability: fixed race condition where addon showed as added but wasn't persisted
+
+### Fixed
+- Continue Watching showing episodes/seasons that don't exist (e.g., S2E1 for a 1-season show)
+- Watchlist page: left D-pad navigation to sidebar now works correctly
+- Watchlist/sidebar: selecting Home/TV/Settings no longer accidentally opens a details page
+- Subtitle rebuild loop removed: no more flickering or infinite re-preparing during playback
+
 ## [1.9.2] - 2026-03-19
 
 ### Added

@@ -73,6 +73,9 @@ data class SettingsUiState(
     val autoPlayMinQuality: String = "Any",
     val dnsProvider: String = "System DNS",
     val dnsProviderOptions: List<String> = listOf("System DNS", "Cloudflare", "Google", "AdGuard"),
+    val subtitleSize: String = "Medium",
+    val subtitleColor: String = "White",
+    val trailerAutoPlay: Boolean = false,
     val includeSpecials: Boolean = false,
     val isLoggedIn: Boolean = false,
     val accountEmail: String? = null,
@@ -96,6 +99,8 @@ data class SettingsUiState(
     // IPTV
     val iptvM3uUrl: String = "",
     val iptvEpgUrl: String = "",
+    val iptvStalkerUrl: String = "",
+    val iptvStalkerMac: String = "",
     val iptvChannelCount: Int = 0,
     val isIptvLoading: Boolean = false,
     val iptvError: String? = null,
@@ -123,6 +128,8 @@ data class SettingsUiState(
     val contentLanguage: String = "en-US",
     // Device mode override
     val deviceModeOverride: String = "auto",
+    // Skip profile selection
+    val skipProfileSelection: Boolean = false,
     // Toast
     val toastMessage: String? = null,
     val toastType: ToastType = ToastType.INFO
@@ -169,11 +176,16 @@ class SettingsViewModel @Inject constructor(
     private fun autoPlaySingleSourceKeyFor(profileId: String) = profileManager.profileBooleanKeyFor(profileId, "auto_play_single_source")
     private fun autoPlayMinQualityKey() = profileManager.profileStringKey("auto_play_min_quality")
     private fun autoPlayMinQualityKeyFor(profileId: String) = profileManager.profileStringKeyFor(profileId, "auto_play_min_quality")
+    private fun trailerAutoPlayKey() = profileManager.profileBooleanKey("trailer_auto_play")
+
+    private fun subtitleSizeKey() = profileManager.profileStringKey("subtitle_size")
+    private fun subtitleColorKey() = profileManager.profileStringKey("subtitle_color")
     private fun dnsProviderKey() = profileManager.profileStringKey("dns_provider")
     private fun includeSpecialsKey() = profileManager.profileBooleanKey("include_specials")
     private fun includeSpecialsKeyFor(profileId: String) = profileManager.profileBooleanKeyFor(profileId, "include_specials")
     private val gson = Gson()
     private var lastObservedIptvM3u: String = ""
+    private var lastObservedStalkerUrl: String = ""
 
     private var traktPollingJob: Job? = null
     private var iptvLoadJob: Job? = null
@@ -236,6 +248,7 @@ class SettingsViewModel @Inject constructor(
             val cardLayoutMode = normalizeCardLayoutMode(prefs[cardLayoutModeKey()])
             val frameRateMode = normalizeFrameRateMode(prefs[frameRateMatchingModeKey()])
             val deviceModeOverride = prefs[com.arflix.tv.util.DEVICE_MODE_OVERRIDE_KEY] ?: "auto"
+            val skipProfileSelection = prefs[com.arflix.tv.util.SKIP_PROFILE_SELECTION_KEY] ?: false
             val contentLang = prefs[contentLanguageKey()] ?: "en-US"
             // Apply content language to MediaRepository immediately
             mediaRepository.contentLanguage = if (contentLang == "en-US") null else contentLang
@@ -250,6 +263,10 @@ class SettingsViewModel @Inject constructor(
                 context.settingsDataStore.edit { it[autoPlayNextKey()] = true }
             }
             val autoPlayMinQuality = normalizeAutoPlayMinQuality(prefs[autoPlayMinQualityKey()])
+            val trailerAutoPlay = prefs[trailerAutoPlayKey()] ?: false
+
+            val subtitleSize = prefs[subtitleSizeKey()] ?: "Medium"
+            val subtitleColor = prefs[subtitleColorKey()] ?: "White"
             val dnsProviderValue = normalizeDnsProviderValue(prefs[dnsProviderKey()])
             val includeSpecials = prefs[includeSpecialsKey()] ?: false
 
@@ -285,6 +302,10 @@ class SettingsViewModel @Inject constructor(
                 autoPlayNext = autoPlay,
                 autoPlaySingleSource = autoPlaySingleSource,
                 autoPlayMinQuality = autoPlayMinQuality,
+                trailerAutoPlay = trailerAutoPlay,
+
+                subtitleSize = subtitleSize,
+                subtitleColor = subtitleColor,
                 dnsProvider = dnsProviderLabel(dnsProviderValue),
                 includeSpecials = includeSpecials,
                 isLoggedIn = isLoggedIn,
@@ -293,6 +314,8 @@ class SettingsViewModel @Inject constructor(
                 traktExpiration = traktExpiration,
                 iptvM3uUrl = iptvConfig.m3uUrl,
                 iptvEpgUrl = iptvConfig.epgUrl,
+                iptvStalkerUrl = iptvConfig.stalkerPortalUrl,
+                iptvStalkerMac = iptvConfig.stalkerMacAddress,
                 isSelfUpdateSupported = currentState.isSelfUpdateSupported,
                 isCheckingForUpdate = currentState.isCheckingForUpdate,
                 availableAppUpdate = currentState.availableAppUpdate,
@@ -306,7 +329,8 @@ class SettingsViewModel @Inject constructor(
                 catalogs = existingCatalogs,
                 addons = addons,
                 contentLanguage = contentLang,
-                deviceModeOverride = deviceModeOverride
+                deviceModeOverride = deviceModeOverride,
+                skipProfileSelection = skipProfileSelection
             )
         }
     }
@@ -551,7 +575,8 @@ class SettingsViewModel @Inject constructor(
         )
         val base = buildList {
             add("Off")
-            if (current.isNotBlank()) add(current)
+            add("Forced")
+            if (current.isNotBlank() && current != "Off" && current != "Forced") add(current)
             addAll(topUsed)
             addAll(defaults)
         }
@@ -705,6 +730,15 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setSkipProfileSelection(skip: Boolean) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { prefs ->
+                prefs[com.arflix.tv.util.SKIP_PROFILE_SELECTION_KEY] = skip
+            }
+            _uiState.value = _uiState.value.copy(skipProfileSelection = skip)
+        }
+    }
+
     fun cycleFrameRateMatchingMode() {
         val current = normalizeFrameRateMode(_uiState.value.frameRateMatchingMode)
         val next = when (current) {
@@ -745,6 +779,20 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setTrailerAutoPlay(enabled: Boolean) {
+        viewModelScope.launch { context.settingsDataStore.edit { it[trailerAutoPlayKey()] = enabled }; _uiState.value = _uiState.value.copy(trailerAutoPlay = enabled); syncLocalStateToCloud(silent = true) }
+    }
+
+    fun cycleSubtitleSize() {
+        val next = when (_uiState.value.subtitleSize) { "Small" -> "Medium"; "Medium" -> "Large"; "Large" -> "Extra Large"; else -> "Small" }
+        viewModelScope.launch { context.settingsDataStore.edit { it[subtitleSizeKey()] = next }; _uiState.value = _uiState.value.copy(subtitleSize = next); syncLocalStateToCloud(silent = true) }
+    }
+
+    fun cycleSubtitleColor() {
+        val next = when (_uiState.value.subtitleColor) { "White" -> "Yellow"; "Yellow" -> "Green"; "Green" -> "Cyan"; else -> "White" }
+        viewModelScope.launch { context.settingsDataStore.edit { it[subtitleColorKey()] = next }; _uiState.value = _uiState.value.copy(subtitleColor = next); syncLocalStateToCloud(silent = true) }
+    }
+
     private fun normalizeDnsProviderValue(raw: String?): String {
         return when (raw?.trim()?.lowercase()) {
             "system", "system dns", "system_dns" -> "system"
@@ -783,6 +831,9 @@ class SettingsViewModel @Inject constructor(
 
             withContext(Dispatchers.IO) {
                 OkHttpProvider.setDnsProvider(OkHttpProvider.parseDnsProvider(value))
+                // Warm up the new DNS provider's lazy init off the main thread
+                // so the first image request doesn't block
+                runCatching { OkHttpProvider.dns.lookup("image.tmdb.org") }
             }
             context.settingsDataStore.edit { prefs ->
                 prefs[dnsProviderKey()] = value
@@ -791,7 +842,7 @@ class SettingsViewModel @Inject constructor(
                 dnsProvider = dnsProviderLabel(value)
             )
 
-            // Keep image requests consistent if restart is delayed by the system.
+            // Replace Coil image loader with one using the new DNS
             val imageLoader = withContext(Dispatchers.IO) {
                 OkHttpProvider.createCoilImageLoader(context)
             }
@@ -826,6 +877,8 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val result = streamRepository.addCustomAddon(url)
             result.onSuccess { addon ->
+                // Small delay to let DataStore flush the write before reading back
+                delay(150)
                 val currentAddons = streamRepository.installedAddons.first()
                 val importedCatalogs = addon.manifest?.catalogs?.size ?: 0
                 runCatching {
@@ -882,36 +935,43 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             iptvRepository.observeConfig().collect { config ->
                 val current = _uiState.value
-                if (current.iptvM3uUrl != config.m3uUrl || current.iptvEpgUrl != config.epgUrl) {
+                if (current.iptvM3uUrl != config.m3uUrl || current.iptvEpgUrl != config.epgUrl || current.iptvStalkerUrl != config.stalkerPortalUrl || current.iptvStalkerMac != config.stalkerMacAddress) {
                     _uiState.value = current.copy(
                         iptvM3uUrl = config.m3uUrl,
-                        iptvEpgUrl = config.epgUrl
+                        iptvEpgUrl = config.epgUrl,
+                        iptvStalkerUrl = config.stalkerPortalUrl,
+                        iptvStalkerMac = config.stalkerMacAddress
                     )
                 }
                 if (!hasObservedIptvConfig) {
                     hasObservedIptvConfig = true
                     lastObservedIptvM3u = config.m3uUrl
-                    if (config.m3uUrl.isBlank()) {
+                    lastObservedStalkerUrl = config.stalkerPortalUrl
+                    val hasAnyIptvConfig = config.m3uUrl.isNotBlank() || config.stalkerPortalUrl.isNotBlank()
+                    if (!hasAnyIptvConfig) {
                         _uiState.value = _uiState.value.copy(
                             iptvChannelCount = 0,
                             iptvError = null,
                             iptvProgressText = null,
                             iptvProgressPercent = 0
                         )
-                    } else if (iptvLoadJob?.isActive != true && _uiState.value.iptvChannelCount == 0) {
+                    } else if (hasAnyIptvConfig && iptvLoadJob?.isActive != true && _uiState.value.iptvChannelCount == 0) {
                         // Auto-refresh IPTV on startup/profile switch when configured but not loaded yet.
                         refreshIptv(showToast = false, force = false)
                     }
                     return@collect
                 }
 
-                if (config.m3uUrl.isNotBlank() && config.m3uUrl != lastObservedIptvM3u) {
+                val hasAnyConfig = config.m3uUrl.isNotBlank() || config.stalkerPortalUrl.isNotBlank()
+                if (hasAnyConfig && (config.m3uUrl != lastObservedIptvM3u || config.stalkerPortalUrl != lastObservedStalkerUrl)) {
                     lastObservedIptvM3u = config.m3uUrl
+                    lastObservedStalkerUrl = config.stalkerPortalUrl
                     if (iptvLoadJob?.isActive != true) {
                         refreshIptv(showToast = false, force = false)
                     }
-                } else if (config.m3uUrl.isBlank()) {
+                } else if (!hasAnyConfig) {
                     lastObservedIptvM3u = ""
+                    lastObservedStalkerUrl = ""
                     _uiState.value = _uiState.value.copy(
                         iptvChannelCount = 0,
                         iptvError = null,
@@ -986,7 +1046,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val result = catalogRepository.removeCustomCatalog(catalogId)
             result.onSuccess {
+                // Refresh the catalog list in UI state after removal
+                val updatedCatalogs = catalogRepository.getCatalogs()
                 _uiState.value = _uiState.value.copy(
+                    catalogs = updatedCatalogs,
                     toastMessage = "Catalog removed",
                     toastType = ToastType.SUCCESS
                 )
@@ -1045,6 +1108,18 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun saveStalkerConfig(portalUrl: String, macAddress: String) {
+        viewModelScope.launch {
+            if (portalUrl.isBlank() || macAddress.isBlank()) {
+                _uiState.value = _uiState.value.copy(toastMessage = "Portal URL and MAC address are required", toastType = ToastType.ERROR)
+                return@launch
+            }
+            iptvRepository.saveStalkerConfig(portalUrl, macAddress)
+            syncLocalStateToCloud(silent = true)
+            refreshIptv(showToast = true, configured = true, force = true)
+        }
+    }
+
     /**
      * Save IPTV config while supporting explicit Xtream credentials.
      * Host/base is taken from M3U field; credentials are entered separately.
@@ -1083,7 +1158,7 @@ class SettingsViewModel @Inject constructor(
     fun refreshIptv(showToast: Boolean = true, configured: Boolean = false, force: Boolean = true) {
         viewModelScope.launch {
             val currentConfig = iptvRepository.observeConfig().first()
-            if (currentConfig.m3uUrl.isBlank()) return@launch
+            if (currentConfig.m3uUrl.isBlank() && currentConfig.stalkerPortalUrl.isBlank()) return@launch
 
             val runningJob = iptvLoadJob
             if (runningJob?.isActive == true) {

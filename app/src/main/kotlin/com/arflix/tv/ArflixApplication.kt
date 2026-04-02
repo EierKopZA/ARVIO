@@ -21,6 +21,7 @@ import com.arflix.tv.data.repository.AuthRepository
 import com.arflix.tv.data.repository.AuthState
 import com.arflix.tv.data.repository.CloudSyncRepository
 import com.arflix.tv.data.repository.RealtimeSyncManager
+import com.arflix.tv.data.repository.WatchlistRepository
 import com.arflix.tv.data.repository.ProfileManager
 import com.arflix.tv.util.AppLogger
 import com.arflix.tv.util.CrashlyticsProvider
@@ -51,6 +52,8 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
     lateinit var cloudSyncRepository: CloudSyncRepository
     @Inject
     lateinit var realtimeSyncManager: RealtimeSyncManager
+    @Inject
+    lateinit var watchlistRepository: WatchlistRepository
 
     override fun onCreate() {
         super.onCreate()
@@ -67,6 +70,8 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
 
         appScope.launch {
             runCatching { profileManager.initialize() }
+            // Preload watchlist cache in background for instant display
+            runCatching { watchlistRepository.getWatchlistItems() }
             if (!authRepository.getCurrentUserId().isNullOrBlank()) {
                 // Pull cloud state shortly after startup for faster cross-device sync.
                 delay(3_000L)

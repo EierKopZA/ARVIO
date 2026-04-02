@@ -2,6 +2,8 @@ package com.arflix.tv.ui.screens.home
 
 import android.app.ActivityManager
 import android.content.Context
+import com.arflix.tv.util.settingsDataStore
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -62,6 +64,8 @@ data class HomeUiState(
     // Current hero (may update during transitions)
     val heroItem: MediaItem? = null,
     val heroLogoUrl: String? = null,
+    val heroTrailerKey: String? = null,
+    val trailerAutoPlay: Boolean = false,
     val heroOverviewOverride: String? = null,
     val cardLogoUrls: Map<String, String> = emptyMap(),
     // Previous hero for crossfade (Phase 2.1)
@@ -401,7 +405,7 @@ class HomeViewModel @Inject constructor(
     private val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
     private val isLowRamDevice = activityManager.isLowRamDevice || activityManager.memoryClass <= 256
     // IO concurrency for network requests (logo fetches, catalog loads, etc.)
-    private val networkParallelism = if (isLowRamDevice) 2 else 4
+    private val networkParallelism = if (isLowRamDevice) 3 else 6
     private val networkDispatcher = Dispatchers.IO.limitedParallelism(networkParallelism)
     private var lastContinueWatchingItems: List<MediaItem> = emptyList()
     private var lastContinueWatchingUpdateMs: Long = 0L
@@ -631,6 +635,17 @@ class HomeViewModel @Inject constructor(
     }
 
     init {
+        // Load trailer auto-play setting
+        viewModelScope.launch {
+            try {
+                val prefs = context.settingsDataStore.data.first()
+                // Search for any profile key that matches trailer_auto_play
+                val trailerEnabled = prefs.asMap().any { (key, value) ->
+                    key.name.endsWith("_trailer_auto_play") && value == true
+                }
+                _uiState.value = _uiState.value.copy(trailerAutoPlay = trailerEnabled)
+            } catch (_: Exception) {}
+        }
         // Restore logo URL cache from disk for instant clearlogos on cold start
         restoreLogoCacheFromDisk()
         if (logoCache.isNotEmpty()) {
@@ -979,17 +994,61 @@ class HomeViewModel @Inject constructor(
                         }
                     }
 
-                    val preinstalled = savedCatalogs
-                        .filter { it.isPreinstalled }
+                    // Split preinstalled into TMDB-based and MDBList-based
+                    val tmdbPreinstalled = savedCatalogs
+                        .filter { it.isPreinstalled && it.sourceUrl.isNullOrBlank() }
                         .mapNotNull { cfg ->
                             val category = baseById[cfg.id] ?: return@mapNotNull null
-                            // Apply user-renamed title from saved catalog config
                             if (cfg.title.isNotBlank() && cfg.title != category.title) {
                                 category.copy(title = cfg.title)
                             } else {
                                 category
                             }
                         }
+                    // Load MDBList preinstalled catalogs - first 8 immediately, rest lazily on scroll
+                    val mdblistConfigs = savedCatalogs.filter { it.isPreinstalled && !it.sourceUrl.isNullOrBlank() }
+                    val initialBatch = mdblistConfigs.take(3)
+                    val deferredBatch = mdblistConfigs.drop(8)
+                    val mdblistInitial = initialBatch.map { cfg ->
+                        async(networkDispatcher) {
+                            try {
+                                val result = mediaRepository.loadCustomCatalogPage(catalog = cfg, offset = 0, limit = 20)
+                                if (result.items.isNotEmpty()) Category(id = cfg.id, title = cfg.title, items = result.items) else null
+                            } catch (_: Exception) { null }
+                        }
+                    }
+                    val mdblistCategories = mdblistInitial.awaitAll().filterNotNull()
+                    // Create placeholder categories for deferred ones (will load on scroll)
+                    val deferredCategories = deferredBatch.map { cfg -> Category(id = cfg.id, title = cfg.title, items = emptyList()) }
+                    // Merge both lists maintaining the saved catalog order
+                    val allPreinstalledById = (tmdbPreinstalled + mdblistCategories + deferredCategories).associateBy { it.id }
+
+                    // Load deferred catalogs in background in batches of 3
+                    if (deferredBatch.isNotEmpty()) {
+                        viewModelScope.launch(networkDispatcher) {
+                            deferredBatch.chunked(3).forEach { batch ->
+                                val results = batch.map { cfg ->
+                                    async {
+                                        try {
+                                            val result = mediaRepository.loadCustomCatalogPage(catalog = cfg, offset = 0, limit = 20)
+                                            if (result.items.isNotEmpty()) Category(id = cfg.id, title = cfg.title, items = result.items) else null
+                                        } catch (_: Exception) { null }
+                                    }
+                                }.awaitAll().filterNotNull()
+                                if (results.isNotEmpty()) {
+                                    val current = _uiState.value.categories.toMutableList()
+                                    for (cat in results) {
+                                        val idx = current.indexOfFirst { it.id == cat.id }
+                                        if (idx >= 0) current[idx] = cat else current.add(cat)
+                                    }
+                                    _uiState.value = _uiState.value.copy(categories = current)
+                                }
+                            }
+                        }
+                    }
+                    val preinstalled = savedCatalogs
+                        .filter { it.isPreinstalled }
+                        .mapNotNull { cfg -> allPreinstalledById[cfg.id] }
                     val customCatalogConfigs = savedCatalogs.filter { cfg -> isCustomCatalogConfig(cfg) }
                     val stickyCustomById = currentBaseCategories
                         .filter { category ->
@@ -1042,9 +1101,10 @@ class HomeViewModel @Inject constructor(
                     lastContinueWatchingUpdateMs = SystemClock.elapsedRealtime()
                     categories.add(0, continueWatchingCategory)
                 } else {
-                    // Preserve Continue Watching that refreshContinueWatchingOnly() may have
-                    // already added while we were loading categories. Without this, the
-                    // state overwrite at line below would discard CW data.
+                    // Preserve Continue Watching from ANY previous state to prevent the race
+                    // condition where loadHomeData overwrites CW that was set by init preload,
+                    // auth observer, or sync observer. Check both current UI state and the
+                    // preload cache to avoid dropping valid CW data.
                     val existingCW = _uiState.value.categories.firstOrNull {
                         it.id == "continue_watching" && it.items.isNotEmpty() &&
                                 it.items.none { item -> item.isPlaceholder }
@@ -1052,6 +1112,8 @@ class HomeViewModel @Inject constructor(
                     if (existingCW != null) {
                         categories.add(0, existingCW)
                     }
+                    // If no existing CW found, don't overwrite - a concurrent refresh may
+                    // be in progress. The CW row will appear once refresh completes.
                 }
 
                 val heroItem = categories.firstOrNull()?.items?.firstOrNull()
@@ -1368,13 +1430,16 @@ class HomeViewModel @Inject constructor(
                 val currentCategories = _uiState.value.categories
                 val currentCategory = currentCategories.firstOrNull { it.id == categoryId } ?: return@launch
 
-                val result = if (savedCatalogById[categoryId]?.isPreinstalled == true) {
+                val catalog = savedCatalogById[categoryId]
+                val result = if (catalog?.isPreinstalled == true && catalog.sourceUrl.isNullOrBlank()) {
+                    // Pure TMDB preinstalled catalog (no MDBList source)
                     val nextPage = (currentCategory.items.size / categoryPageSize) + 1
                     mediaRepository.loadHomeCategoryPage(categoryId, nextPage)
                 } else {
-                    val catalog = savedCatalogById[categoryId] ?: return@launch
+                    // MDBList/custom catalog (including preinstalled MDBList ones)
+                    val cfg = catalog ?: return@launch
                     mediaRepository.loadCustomCatalogPage(
-                        catalog = catalog,
+                        catalog = cfg,
                         offset = currentCategory.items.size,
                         limit = categoryPageSize
                     )
@@ -1602,7 +1667,7 @@ class HomeViewModel @Inject constructor(
         // (ON_RESUME, isAuthenticated observer, sync completion) would keep cancelling
         // each other's fetches. The throttle mechanism prevents redundant fetches.
         if (refreshContinueWatchingJob?.isActive == true) {
-            return
+            if (force) refreshContinueWatchingJob?.cancel() else return
         }
         refreshContinueWatchingJob = viewModelScope.launch {
             try {
@@ -1936,18 +2001,33 @@ class HomeViewModel @Inject constructor(
             return
         }
 
-        // Save previous hero for crossfade animation
+        // Save previous hero for crossfade animation, clear trailer for new hero
         _uiState.value = currentState.copy(
             previousHeroItem = currentState.heroItem,
             previousHeroLogoUrl = currentState.heroLogoUrl,
             heroItem = item,
             heroLogoUrl = logoUrl,
             heroOverviewOverride = null,
+            heroTrailerKey = null,
             isHeroTransitioning = true
         )
     }
 
     private fun hydrateHeroDetailsIfNeeded(item: MediaItem) {
+        // Always fetch trailer for new hero item
+        if (_uiState.value.trailerAutoPlay) {
+            // Clear previous trailer immediately
+            _uiState.value = _uiState.value.copy(heroTrailerKey = null)
+            viewModelScope.launch(networkDispatcher) {
+                try {
+                    val trailerKey = mediaRepository.getTrailerKey(item.mediaType, item.id)
+                    if (trailerKey != null && _uiState.value.heroItem?.id == item.id) {
+                        _uiState.value = _uiState.value.copy(heroTrailerKey = trailerKey)
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
         val normalizedOverview = item.overview.trim()
         val looksTruncated = normalizedOverview.endsWith("...") || normalizedOverview.length < 120
         if (normalizedOverview.isNotBlank() && !looksTruncated && item.duration.isNotBlank() && item.duration != "0m") {
@@ -1993,6 +2073,14 @@ class HomeViewModel @Inject constructor(
                         isHeroTransitioning = false
                     )
                 }
+
+                // Fetch trailer key for hero (YouTube)
+                try {
+                    val trailerKey = mediaRepository.getTrailerKey(item.mediaType, item.id)
+                    if (trailerKey != null && _uiState.value.heroItem?.id == item.id) {
+                        _uiState.value = _uiState.value.copy(heroTrailerKey = trailerKey)
+                    }
+                } catch (_: Exception) {}
             } catch (_: Exception) {
             }
         }
@@ -2000,6 +2088,20 @@ class HomeViewModel @Inject constructor(
 
     private fun scheduleHeroDetailsFetch(item: MediaItem, fastScrolling: Boolean) {
         heroDetailsJob?.cancel()
+
+        // Always fetch trailer for new hero item (separate from details cache)
+        if (_uiState.value.trailerAutoPlay) {
+            _uiState.value = _uiState.value.copy(heroTrailerKey = null)
+            viewModelScope.launch(networkDispatcher) {
+                try {
+                    val trailerKey = mediaRepository.getTrailerKey(item.mediaType, item.id)
+                    if (trailerKey != null && _uiState.value.heroItem?.id == item.id) {
+                        _uiState.value = _uiState.value.copy(heroTrailerKey = trailerKey)
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
         heroDetailsJob = viewModelScope.launch(networkDispatcher) {
             val detailsKey = "${item.mediaType}_${item.id}"
             val cachedDetails = heroDetailsCache[detailsKey]
@@ -2290,14 +2392,21 @@ class HomeViewModel @Inject constructor(
 
                         // Save the NEXT episode to CW (local + cloud) so it appears on all devices
                         try {
-                            val followingEpisode = nextEp.episodeNumber + 1
+                            // Handle season boundaries: if this was the last episode of the season, move to next season
+                            var followingSeason = nextEp.seasonNumber
+                            var followingEpisode = nextEp.episodeNumber + 1
+                            val seasonEpisodes = mediaRepository.getSeasonEpisodes(item.id, nextEp.seasonNumber)
+                            if (seasonEpisodes != null && followingEpisode > seasonEpisodes.size) {
+                                followingSeason = nextEp.seasonNumber + 1
+                                followingEpisode = 1
+                            }
                             traktRepository.saveLocalContinueWatching(
                                 mediaType = MediaType.TV,
                                 tmdbId = item.id,
                                 title = item.title,
                                 posterPath = item.image,
                                 backdropPath = item.backdrop,
-                                season = nextEp.seasonNumber,
+                                season = followingSeason,
                                 episode = followingEpisode,
                                 episodeTitle = null,
                                 progress = 3,
@@ -2311,7 +2420,7 @@ class HomeViewModel @Inject constructor(
                                 title = item.title,
                                 poster = item.image,
                                 backdrop = item.backdrop,
-                                season = nextEp.seasonNumber,
+                                season = followingSeason,
                                 episode = followingEpisode,
                                 episodeTitle = null,
                                 progress = 0.01f,
@@ -2384,14 +2493,20 @@ class HomeViewModel @Inject constructor(
 
                         // Save the NEXT episode to CW (local + cloud) so it appears on all devices
                         try {
-                            val followingEpisode = nextEp.episodeNumber + 1
+                            var followingSeason = nextEp.seasonNumber
+                            var followingEpisode = nextEp.episodeNumber + 1
+                            val seasonEps = mediaRepository.getSeasonEpisodes(item.id, nextEp.seasonNumber)
+                            if (seasonEps != null && followingEpisode > seasonEps.size) {
+                                followingSeason = nextEp.seasonNumber + 1
+                                followingEpisode = 1
+                            }
                             traktRepository.saveLocalContinueWatching(
                                 mediaType = MediaType.TV,
                                 tmdbId = item.id,
                                 title = item.title,
                                 posterPath = item.image,
                                 backdropPath = item.backdrop,
-                                season = nextEp.seasonNumber,
+                                season = followingSeason,
                                 episode = followingEpisode,
                                 episodeTitle = null,
                                 progress = 1,
@@ -2406,7 +2521,7 @@ class HomeViewModel @Inject constructor(
                                 title = item.title,
                                 poster = item.image,
                                 backdrop = item.backdrop,
-                                season = nextEp.seasonNumber,
+                                season = followingSeason,
                                 episode = followingEpisode,
                                 episodeTitle = null,
                                 progress = 0.01f,
