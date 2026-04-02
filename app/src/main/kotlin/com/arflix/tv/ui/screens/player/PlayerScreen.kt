@@ -1590,10 +1590,7 @@ fun PlayerScreen(
                 }
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    PulsingLogo(
-                        logoUrl = uiState.logoUrl,
-                        title = uiState.title
-                    )
+                    PulsingLogo(logoUrl = uiState.logoUrl, title = uiState.title)
 
                     Spacer(modifier = Modifier.height(20.dp))
 
@@ -1619,7 +1616,7 @@ fun PlayerScreen(
                 contentAlignment = Alignment.Center
             ) {
                 PulsingLogo(
-                    logoUrl = uiState.logoUrl,
+                    logoUrl = uiState.logoUrl, 
                     title = uiState.title
                 )
             }
