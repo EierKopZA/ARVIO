@@ -180,6 +180,26 @@ fun PlayerScreen(
     val latestUiState by rememberUpdatedState(uiState)
     val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
+    val deviceType = LocalDeviceType.current
+
+    // On mobile, enable immersive fullscreen for the player and restore system bars on exit.
+    // TV is always in fullscreen so no change is needed there.
+    DisposableEffect(Unit) {
+        val activity = context as? android.app.Activity
+        val window = activity?.window
+        if (window != null && deviceType != com.arflix.tv.util.DeviceType.TV) {
+            val controller = androidx.core.view.WindowInsetsControllerCompat(window, window.decorView)
+            controller.systemBarsBehavior =
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        }
+        onDispose {
+            if (window != null && deviceType != com.arflix.tv.util.DeviceType.TV) {
+                val controller = androidx.core.view.WindowInsetsControllerCompat(window, window.decorView)
+                controller.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
 
     var isPlaying by remember { mutableStateOf(false) }
     var isBuffering by remember { mutableStateOf(true) }
@@ -803,7 +823,14 @@ fun PlayerScreen(
             rebufferRecoverAttempted = false
             longRebufferCount = 0
 
-            val subtitleConfigs = buildExternalSubtitleConfigurations(uiState.subtitles)
+            // Only add the selected subtitle to ExoPlayer (not all 30+).
+            // Loading all external subs slows down preparation and causes non-UTF8 subs to fail.
+            val selectedSub = uiState.selectedSubtitle
+            val subtitleConfigs = if (selectedSub != null && !selectedSub.isEmbedded) {
+                buildExternalSubtitleConfigurations(listOf(selectedSub))
+            } else {
+                emptyList()
+            }
             val mediaItemBuilder = MediaItem.Builder().setUri(Uri.parse(url))
             if (subtitleConfigs.isNotEmpty()) {
                 mediaItemBuilder.setSubtitleConfigurations(subtitleConfigs)
@@ -866,49 +893,109 @@ fun PlayerScreen(
         }
     }
 
-    // Apply subtitle changes without reloading the media source.
-    LaunchedEffect(uiState.selectedSubtitle, uiState.subtitleSelectionNonce, uiState.subtitles) {
+    // When new external subtitles arrive after initial load, rebuild the MediaItem once.
+    // Subtitle rebuild removed: we now load only the selected subtitle on-demand.
+    // When user switches subtitles, the LaunchedEffect below rebuilds the MediaItem with the new sub.
+    var subtitleRebuildDone by remember { mutableStateOf(false) }
+    var initialSubtitleCount by remember { mutableIntStateOf(-1) }
+    LaunchedEffect(uiState.subtitles.size) {
+        if (playerReleased) return@LaunchedEffect
+        val newCount = uiState.subtitles.size
+        if (initialSubtitleCount < 0) { initialSubtitleCount = newCount; return@LaunchedEffect }
+        // No longer rebuild with all subs - they're loaded individually on selection
+        initialSubtitleCount = newCount
+    }
+    // Reset rebuild flag when stream changes
+    LaunchedEffect(uiState.selectedStreamUrl) { subtitleRebuildDone = false; initialSubtitleCount = -1 }
+
+    // When subtitle selection changes, rebuild MediaItem with just the selected subtitle.
+    // This avoids loading all 30+ subtitle files and fixes non-English encoding issues.
+    LaunchedEffect(uiState.selectedSubtitle, uiState.subtitleSelectionNonce) {
         if (playerReleased) return@LaunchedEffect
         val subtitle = uiState.selectedSubtitle
-
-        val params = exoPlayer.trackSelectionParameters
-            .buildUpon()
-            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+        val url = uiState.selectedStreamUrl ?: return@LaunchedEffect
 
         if (subtitle == null) {
-            exoPlayer.trackSelectionParameters = params
+            // Disable all text tracks
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
                 .build()
             return@LaunchedEffect
         }
 
-        val resolvedSubtitle = uiState.subtitles.firstOrNull {
-            it.id == subtitle.id && it.groupIndex != null && it.trackIndex != null
-        } ?: uiState.subtitles.firstOrNull {
-            subtitle.url.isNotBlank() && it.url == subtitle.url && it.groupIndex != null && it.trackIndex != null
-        } ?: subtitle
-
-        val groupIndex = resolvedSubtitle.groupIndex
-        val trackIndex = resolvedSubtitle.trackIndex
-        val groups = exoPlayer.currentTracks.groups
-        if (groupIndex != null && trackIndex != null &&
-            groupIndex in groups.indices &&
-            groups[groupIndex].type == C.TRACK_TYPE_TEXT
-        ) {
-            params.setOverrideForType(
-                androidx.media3.common.TrackSelectionOverride(
-                    groups[groupIndex].mediaTrackGroup,
-                    trackIndex
+        if (subtitle.isEmbedded && subtitle.groupIndex != null && subtitle.trackIndex != null) {
+            // For embedded subs, just select the track directly
+            val groups = exoPlayer.currentTracks.groups
+            val params = exoPlayer.trackSelectionParameters.buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            if (subtitle.groupIndex in groups.indices &&
+                groups[subtitle.groupIndex].type == C.TRACK_TYPE_TEXT) {
+                params.setOverrideForType(
+                    androidx.media3.common.TrackSelectionOverride(
+                        groups[subtitle.groupIndex].mediaTrackGroup,
+                        subtitle.trackIndex
+                    )
                 )
-            )
+            }
+            exoPlayer.trackSelectionParameters = params.build()
+            return@LaunchedEffect
         }
 
-        exoPlayer.trackSelectionParameters = params
-            .setPreferredTextLanguage(subtitle.lang)
-            .setSelectUndeterminedTextLanguage(true)
-            .setIgnoredTextSelectionFlags(0)
-            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-            .build()
+        // External subtitle: rebuild MediaItem with just this one subtitle
+        if (subtitle.url.isNotBlank() && exoPlayer.playbackState != Player.STATE_IDLE) {
+            val currentPosition = exoPlayer.currentPosition
+            val wasPlaying = exoPlayer.isPlaying
+            val subtitleConfigs = buildExternalSubtitleConfigurations(listOf(subtitle))
+            val mediaItem = MediaItem.Builder()
+                .setUri(Uri.parse(url))
+                .setSubtitleConfigurations(subtitleConfigs)
+                .build()
+            exoPlayer.setMediaItem(mediaItem, currentPosition)
+            exoPlayer.prepare()
+            if (wasPlaying) exoPlayer.play()
+
+            // Enable the subtitle track after rebuild
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                .setPreferredTextLanguage(subtitle.lang)
+                .setSelectUndeterminedTextLanguage(true)
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                .build()
+        }
+    }
+
+    // Re-apply embedded subtitle selection when track list updates (e.g., after onTracksChanged)
+    LaunchedEffect(uiState.subtitles) {
+        if (playerReleased) return@LaunchedEffect
+        val subtitle = uiState.selectedSubtitle ?: return@LaunchedEffect
+        if (!subtitle.isEmbedded) return@LaunchedEffect
+
+        // Find the resolved version with groupIndex/trackIndex from ExoPlayer
+        val resolved = uiState.subtitles.firstOrNull {
+            it.id == subtitle.id && it.groupIndex != null && it.trackIndex != null
+        } ?: return@LaunchedEffect
+
+        val groups = exoPlayer.currentTracks.groups
+        if (resolved.groupIndex != null && resolved.trackIndex != null &&
+            resolved.groupIndex in groups.indices &&
+            groups[resolved.groupIndex].type == C.TRACK_TYPE_TEXT
+        ) {
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                .setOverrideForType(
+                    androidx.media3.common.TrackSelectionOverride(
+                        groups[resolved.groupIndex].mediaTrackGroup,
+                        resolved.trackIndex
+                    )
+                )
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                .build()
+        }
     }
 
     // Auto-hide controls and return focus to container
@@ -1252,6 +1339,9 @@ fun PlayerScreen(
     }
 
     val isTouchDevice = LocalDeviceType.current.isTouchDevice()
+    // Read subtitle appearance prefs
+    val subtitleSizePref = uiState.subtitleSize
+    val subtitleColorPref = uiState.subtitleColor
     val aspectModeLabel = when (playerResizeMode) {
         AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
         AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Fill"
@@ -1540,23 +1630,29 @@ fun PlayerScreen(
 
                         // Enable subtitle view with Netflix-style: bold white text with black outline
                         subtitleView?.apply {
-                            // Use CaptionStyleCompat from ui package
+                            // Read subtitle appearance from user settings
+                            val subSizeSp = when (subtitleSizePref) {
+                                "Small" -> 18f; "Large" -> 30f; "Extra Large" -> 36f; else -> 24f
+                            }
+                            val subFgColor = when (subtitleColorPref) {
+                                "Yellow" -> android.graphics.Color.YELLOW
+                                "Green" -> android.graphics.Color.GREEN
+                                "Cyan" -> android.graphics.Color.CYAN
+                                else -> android.graphics.Color.WHITE
+                            }
                             setStyle(
                                 androidx.media3.ui.CaptionStyleCompat(
-                                    android.graphics.Color.WHITE,                    // Foreground color
-                                    android.graphics.Color.TRANSPARENT,              // Background color (transparent = no box)
-                                    android.graphics.Color.TRANSPARENT,              // Window color
-                                    androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE,  // Text outline
-                                    android.graphics.Color.BLACK,                    // Edge color (black outline)
-                                    android.graphics.Typeface.DEFAULT_BOLD           // Bold typeface
+                                    subFgColor,
+                                    android.graphics.Color.TRANSPARENT,
+                                    android.graphics.Color.TRANSPARENT,
+                                    androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+                                    android.graphics.Color.BLACK,
+                                    android.graphics.Typeface.DEFAULT_BOLD
                                 )
                             )
-                            // Normalize embedded subtitle styling to keep size consistent
                             setApplyEmbeddedStyles(false)
                             setApplyEmbeddedFontSizes(false)
-                            // Set subtitle text size - not too big, not too small (like Netflix)
-                            setFixedTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 24f)
-                            // Position subtitles at bottom with some margin
+                            setFixedTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, subSizeSp)
                             setBottomPaddingFraction(0.08f)
                         }
                     }
@@ -1616,7 +1712,7 @@ fun PlayerScreen(
                 contentAlignment = Alignment.Center
             ) {
                 PulsingLogo(
-                    logoUrl = uiState.logoUrl, 
+                    logoUrl = uiState.logoUrl,
                     title = uiState.title
                 )
             }
@@ -1683,8 +1779,7 @@ fun PlayerScreen(
                         if (seasonNumber != null && episodeNumber != null) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 modifier = Modifier.padding(top = 6.dp)
                             ) {
                                 Text(
@@ -1795,7 +1890,8 @@ fun PlayerScreen(
                                 )
                             )
                         )
-                        .padding(horizontal = if (isTouchDevice) 24.dp else 48.dp, vertical = if (isTouchDevice) 16.dp else 24.dp)
+                        .padding(horizontal = if (isTouchDevice) 24.dp else 48.dp)
+                        .padding(top = if (isTouchDevice) 16.dp else 24.dp, bottom = if (isTouchDevice) 32.dp else 24.dp)
                 ) {
                     // Icon buttons row - left-aligned, tight above trackbar (avoids subtitle overlap)
                     Row(
@@ -1912,12 +2008,12 @@ fun PlayerScreen(
 
                         // Trackbar
                         var trackbarFocused by remember { mutableStateOf(false) }
-                        val trackbarHeight by animateFloatAsState(if (trackbarFocused) 8f else 4f, label = "trackbarHeight")
+                        val trackbarHeight by animateFloatAsState(if (trackbarFocused) 8f else if (isTouchDevice) 6f else 4f, label = "trackbarHeight")
                         var trackbarWidthPx by remember { mutableIntStateOf(0) }
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(trackbarHeight.dp)
+                                .height(if (isTouchDevice) 28.dp else 20.dp)
                                 .onSizeChanged { trackbarWidthPx = it.width }
                                 .focusRequester(trackbarFocusRequester)
                                 .onFocusChanged { state ->
@@ -1948,14 +2044,18 @@ fun PlayerScreen(
                                         }
                                     } else false
                                 }
-                                .background(Color.White.copy(alpha = if (trackbarFocused) 0.25f else 0.15f), RoundedCornerShape(3.dp)),
-                            contentAlignment = Alignment.CenterStart
+                                .background(Color.Transparent),
+                            contentAlignment = Alignment.Center
                         ) {
+                            // Visible thin bar centered in the larger touch target
+                            val barHeight = if (trackbarFocused) 8.dp else if (isTouchDevice) 6.dp else 4.dp
+                            Box(modifier = Modifier.fillMaxWidth().height(barHeight).background(Color.White.copy(alpha = if (trackbarFocused) 0.25f else 0.15f), RoundedCornerShape(3.dp)))
                             val frac = if (duration > 0) ((if (isControlScrubbing) scrubPreviewPosition else currentPosition).toFloat() / duration.toFloat()).coerceIn(0f, 1f) else progress
-                            // Watched portion - brighter when focused
+                            Box(modifier = Modifier.fillMaxWidth().height(barHeight).align(Alignment.Center), contentAlignment = Alignment.CenterStart) {
                             Box(modifier = Modifier.fillMaxWidth(frac).fillMaxHeight().background(
                                 if (trackbarFocused) Pink else Pink.copy(alpha = 0.8f), RoundedCornerShape(3.dp)
                             ))
+                            }
                         }
 
                         Spacer(modifier = Modifier.width(8.dp))
@@ -2282,9 +2382,7 @@ private fun PlayerIconButton(
     onDownKey: () -> Unit = {}
 ) {
     var focused by remember { mutableStateOf(false) }
-    // Focused: enlarge icon and brighten it (glow effect via scale + tint)
-    val scale by animateFloatAsState(if (focused) 1.35f else 1f, label = "iconScale")
-    val iconAlpha by animateFloatAsState(if (focused) 1f else 0.6f, label = "iconAlpha")
+    val scale by animateFloatAsState(if (focused) 1.15f else 1f, label = "iconScale")
 
     Box(
         modifier = Modifier
@@ -2305,19 +2403,41 @@ private fun PlayerIconButton(
                 } else false
             }
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onClick() }
-            .graphicsLayer { scaleX = scale; scaleY = scale },
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .background(
+                color = if (focused) Color.White else Color.Transparent,
+                shape = CircleShape
+            ),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = Color.White.copy(alpha = iconAlpha),
+            tint = if (focused) Color.Black else Color.White.copy(alpha = 0.6f),
             modifier = Modifier.size(iconSize)
         )
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun PulsingLogo(logoUrl: String?, title: String, modifier: Modifier = Modifier) {
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 0.92f, targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(animation = animTween(1200, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
+        label = "pulseScale"
+    )
+    Box(modifier = modifier.graphicsLayer { scaleX = scale; scaleY = scale }, contentAlignment = Alignment.Center) {
+        if (!logoUrl.isNullOrBlank()) {
+            AsyncImage(model = logoUrl, contentDescription = title, contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxWidth(0.5f).height(100.dp))
+        } else {
+            Text(title, style = ArflixTypography.sectionTitle.copy(fontSize = 36.sp, fontWeight = FontWeight.Bold),
+                color = Color.White, modifier = Modifier.padding(horizontal = 24.dp))
+        }
+    }
+}
+
 @Composable
 private fun ErrorButton(
     text: String,
@@ -3146,15 +3266,17 @@ private fun buildExternalSubtitleConfigurations(subtitles: List<Subtitle>): List
 }
 
 private fun subtitleMimeTypeFromUrl(url: String): String {
-    val cleanUrl = url.substringBefore('?')
+    val cleanUrl = url.substringBefore('?').lowercase()
     return when {
-        cleanUrl.endsWith(".vtt", ignoreCase = true) -> MimeTypes.TEXT_VTT
-        cleanUrl.endsWith(".srt", ignoreCase = true) -> MimeTypes.APPLICATION_SUBRIP
-        cleanUrl.endsWith(".srt.gz", ignoreCase = true) -> MimeTypes.APPLICATION_SUBRIP
-        cleanUrl.endsWith(".ass", ignoreCase = true) -> MimeTypes.TEXT_SSA
-        cleanUrl.endsWith(".ssa", ignoreCase = true) -> MimeTypes.TEXT_SSA
-        cleanUrl.endsWith(".ttml", ignoreCase = true) -> MimeTypes.APPLICATION_TTML
-        cleanUrl.endsWith(".dfxp", ignoreCase = true) -> MimeTypes.APPLICATION_TTML
+        cleanUrl.endsWith(".vtt") -> MimeTypes.TEXT_VTT
+        cleanUrl.endsWith(".srt") || cleanUrl.endsWith(".srt.gz") -> MimeTypes.APPLICATION_SUBRIP
+        cleanUrl.endsWith(".ass") || cleanUrl.endsWith(".ssa") -> MimeTypes.TEXT_SSA
+        cleanUrl.endsWith(".ttml") || cleanUrl.endsWith(".dfxp") -> MimeTypes.APPLICATION_TTML
+        // OpenSubtitles serves SRT through extensionless URLs - use SRT as default
+        // since it's the dominant format from subtitle addons (OpenSubtitles, Comet).
+        // SRT and VTT are similar but SRT uses comma for milliseconds (00:01:23,456)
+        // while VTT uses period and requires a WEBVTT header. Using SRT avoids silent
+        // parse failures when the actual content is SRT.
         else -> MimeTypes.APPLICATION_SUBRIP
     }
 }
