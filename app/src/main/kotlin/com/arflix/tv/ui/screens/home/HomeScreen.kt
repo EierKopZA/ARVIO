@@ -1922,7 +1922,7 @@ private fun HomeRowsLayer(
             focusState = focusState,
             contentStartPadding = contentStartPadding,
             fastScrollThresholdMs = fastScrollThresholdMs,
-            cardLayoutMode = cardLayoutModeState,
+            cardLayoutMode = cardLayoutMode,
             onItemClick = onItemClick
         )
     }
@@ -2315,6 +2315,7 @@ private fun ContentRow(
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
     val isContinueWatching = category.id == "continue_watching"
+    val usePosterCards = cardLayoutMode == CardLayoutMode.POSTER
     val itemWidth = when (cardLayoutMode) {
         CardLayoutMode.POSTER -> 125.dp
         CardLayoutMode.ADAPTIVE -> 125.dp // Base width is poster
@@ -2537,7 +2538,7 @@ private fun ContentRow(
                             ArvioMediaCard(
                                 item = item,
                                 width = rankedCardWidth,
-                                isLandscape = !usePosterCards,
+                                isLandscape = cardLayoutMode == CardLayoutMode.LANDSCAPE,
                                 logoImageUrl = cardLogoUrl,
                                 showProgress = false,
                                 showTitle = false,

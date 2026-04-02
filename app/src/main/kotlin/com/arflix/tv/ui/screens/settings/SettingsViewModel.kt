@@ -31,6 +31,8 @@ import com.arflix.tv.data.repository.SyncProgress
 import com.arflix.tv.data.repository.SyncStatus
 import com.arflix.tv.data.repository.SyncResult
 import com.arflix.tv.ui.components.CARD_LAYOUT_MODE_LANDSCAPE
+import com.arflix.tv.ui.components.CARD_LAYOUT_MODE_POSTER
+import com.arflix.tv.ui.components.CARD_LAYOUT_MODE_ADAPTIVE
 import com.arflix.tv.ui.components.normalizeCardLayoutMode
 import com.arflix.tv.updater.ApkDownloader
 import com.arflix.tv.updater.ApkInstaller
