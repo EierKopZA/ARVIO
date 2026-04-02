@@ -235,8 +235,37 @@ fun DetailsScreen(
 
         val validStreams = uiState.streams.filter(::isAutoPlayableStream)
         val minThreshold = minQualityThreshold(uiState.autoPlayMinQuality)
-        val singleStream = validStreams.singleOrNull()
+        val regexPattern = uiState.autoPlayRegex.trim()
 
+        // If a regex is configured, attempt to auto-select the first matching stream
+        if (regexPattern.isNotBlank()) {
+            val userRegex = runCatching { Regex(regexPattern, RegexOption.IGNORE_CASE) }.getOrNull()
+            if (userRegex != null) {
+                val regexMatch = validStreams.firstOrNull { stream ->
+                    matchesAutoPlayRegex(stream, userRegex)
+                }
+                if (regexMatch != null) {
+                    onNavigateToPlayer(
+                        mediaType, mediaId,
+                        request.season, request.episode,
+                        uiState.imdbId,
+                        regexMatch.url?.takeIf { it.isNotBlank() },
+                        regexMatch.addonId.takeIf { it.isNotBlank() },
+                        regexMatch.source.takeIf { it.isNotBlank() },
+                        request.startPositionMs
+                    )
+                    pendingAutoPlayRequest = null
+                    return@LaunchedEffect
+                }
+            }
+            // Regex set but no match — fall through to show the stream selector
+            showStreamSelector = true
+            pendingAutoPlayRequest = null
+            return@LaunchedEffect
+        }
+
+        // Standard quality-threshold auto-play (no regex)
+        val singleStream = validStreams.singleOrNull()
         when {
             singleStream != null && qualityScoreForAutoPlay(singleStream.quality) >= minThreshold -> {
                 onNavigateToPlayer(
@@ -853,6 +882,24 @@ private fun isAutoPlayableStream(stream: com.arflix.tv.data.model.StreamSource):
     val url = stream.url?.trim().orEmpty()
     if (!url.startsWith("http", ignoreCase = true)) return false
     return !isPendingDebridStream(stream)
+}
+
+/**
+ * Build a searchable text blob for a stream, matching streams against addon name, title,
+ * description and URL — the same approach used by NuvioTV's StreamAutoPlaySelector.
+ */
+private fun matchesAutoPlayRegex(
+    stream: com.arflix.tv.data.model.StreamSource,
+    pattern: Regex
+): Boolean {
+    val url = stream.url?.trim() ?: return false
+    val searchable = buildString {
+        append(stream.addonName.orEmpty()).append(' ')
+        append(stream.quality.orEmpty()).append(' ')
+        append(stream.source.orEmpty()).append(' ')
+        append(url)
+    }
+    return pattern.containsMatchIn(searchable)
 }
 
 private fun isPendingDebridStream(stream: com.arflix.tv.data.model.StreamSource): Boolean {

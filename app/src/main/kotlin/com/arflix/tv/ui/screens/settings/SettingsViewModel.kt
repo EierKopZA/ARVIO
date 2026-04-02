@@ -4,6 +4,7 @@ import android.content.Context
 import coil.Coil
 import com.arflix.tv.BuildConfig
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -71,6 +72,7 @@ data class SettingsUiState(
     val autoPlayNext: Boolean = true,
     val autoPlaySingleSource: Boolean = true,
     val autoPlayMinQuality: String = "Any",
+    val autoPlayRegex: String = "",
     val dnsProvider: String = "System DNS",
     val dnsProviderOptions: List<String> = listOf("System DNS", "Cloudflare", "Google", "AdGuard"),
     val subtitleSize: String = "Medium",
@@ -176,6 +178,7 @@ class SettingsViewModel @Inject constructor(
     private fun autoPlaySingleSourceKeyFor(profileId: String) = profileManager.profileBooleanKeyFor(profileId, "auto_play_single_source")
     private fun autoPlayMinQualityKey() = profileManager.profileStringKey("auto_play_min_quality")
     private fun autoPlayMinQualityKeyFor(profileId: String) = profileManager.profileStringKeyFor(profileId, "auto_play_min_quality")
+    private val autoPlayRegexKey = stringPreferencesKey("device_autoplay_regex")
     private fun trailerAutoPlayKey() = profileManager.profileBooleanKey("trailer_auto_play")
 
     private fun subtitleSizeKey() = profileManager.profileStringKey("subtitle_size")
@@ -263,6 +266,7 @@ class SettingsViewModel @Inject constructor(
                 context.settingsDataStore.edit { it[autoPlayNextKey()] = true }
             }
             val autoPlayMinQuality = normalizeAutoPlayMinQuality(prefs[autoPlayMinQualityKey()])
+            val autoPlayRegex = prefs[autoPlayRegexKey] ?: ""
             val trailerAutoPlay = prefs[trailerAutoPlayKey()] ?: false
 
             val subtitleSize = prefs[subtitleSizeKey()] ?: "Medium"
@@ -302,6 +306,7 @@ class SettingsViewModel @Inject constructor(
                 autoPlayNext = autoPlay,
                 autoPlaySingleSource = autoPlaySingleSource,
                 autoPlayMinQuality = autoPlayMinQuality,
+                autoPlayRegex = autoPlayRegex,
                 trailerAutoPlay = trailerAutoPlay,
 
                 subtitleSize = subtitleSize,
@@ -781,6 +786,13 @@ class SettingsViewModel @Inject constructor(
 
     fun setTrailerAutoPlay(enabled: Boolean) {
         viewModelScope.launch { context.settingsDataStore.edit { it[trailerAutoPlayKey()] = enabled }; _uiState.value = _uiState.value.copy(trailerAutoPlay = enabled); syncLocalStateToCloud(silent = true) }
+    }
+
+    fun setAutoPlayRegex(regex: String) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(autoPlayRegex = regex)
+            context.settingsDataStore.edit { it[autoPlayRegexKey] = regex }
+        }
     }
 
     fun cycleSubtitleSize() {

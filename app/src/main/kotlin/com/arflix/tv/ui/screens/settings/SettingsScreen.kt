@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material3.Icon
 import com.arflix.tv.ui.components.LoadingIndicator
 import com.arflix.tv.ui.components.QrCodeImage
@@ -178,6 +179,8 @@ fun SettingsScreen(
     var dnsProviderPickerIndex by remember { mutableIntStateOf(0) }
     var showContentLanguagePicker by remember { mutableStateOf(false) }
     var contentLanguagePickerIndex by remember { mutableIntStateOf(0) }
+    var showAutoPlayRegexPicker by remember { mutableStateOf(false) }
+    var autoPlayRegexPickerIndex by remember { mutableIntStateOf(0) }
 
     val sections = remember { listOf("general", "iptv", "catalogs", "addons", "accounts") }
 
@@ -206,6 +209,10 @@ fun SettingsScreen(
     val openContentLanguagePicker = {
         contentLanguagePickerIndex = TMDB_LANGUAGES.indexOfFirst { it.first == uiState.contentLanguage }.coerceAtLeast(0)
         showContentLanguagePicker = true
+    }
+    val openAutoPlayRegexPicker = {
+        autoPlayRegexPickerIndex = autoPlayRegexOptions.indexOfFirst { it.second == uiState.autoPlayRegex }.coerceAtLeast(0)
+        showAutoPlayRegexPicker = true
     }
 
     LaunchedEffect(Unit) {
@@ -237,6 +244,14 @@ fun SettingsScreen(
             val maxIndex = (options.size - 1).coerceAtLeast(0)
             val targetIndex = options.indexOfFirst { it.equals(uiState.dnsProvider, ignoreCase = true) }
             dnsProviderPickerIndex = if (targetIndex >= 0) targetIndex else dnsProviderPickerIndex.coerceIn(0, maxIndex)
+        }
+    }
+
+    LaunchedEffect(showAutoPlayRegexPicker, uiState.autoPlayRegex) {
+        if (showAutoPlayRegexPicker) {
+            val maxIndex = (autoPlayRegexOptions.size - 1).coerceAtLeast(0)
+            val targetIndex = autoPlayRegexOptions.indexOfFirst { it.second == uiState.autoPlayRegex }
+            autoPlayRegexPickerIndex = if (targetIndex >= 0) targetIndex else autoPlayRegexPickerIndex.coerceIn(0, maxIndex)
         }
     }
     
@@ -611,6 +626,8 @@ fun SettingsScreen(
                             autoPlayNext = uiState.autoPlayNext,
                             autoPlaySingleSource = uiState.autoPlaySingleSource,
                             autoPlayMinQuality = uiState.autoPlayMinQuality,
+                            autoPlayRegex = uiState.autoPlayRegex,
+                            autoPlayRegexOptions = autoPlayRegexOptions,
                             subtitleSize = uiState.subtitleSize,
                             subtitleColor = uiState.subtitleColor,
                             deviceModeOverride = uiState.deviceModeOverride,
@@ -624,6 +641,7 @@ fun SettingsScreen(
                             onAutoPlayToggle = { viewModel.setAutoPlayNext(it) },
                             onAutoPlaySingleSourceToggle = { viewModel.setAutoPlaySingleSource(it) },
                             onAutoPlayMinQualityClick = { viewModel.cycleAutoPlayMinQuality() },
+                            onAutoPlayRegexClick = openAutoPlayRegexPicker,
                             trailerAutoPlay = uiState.trailerAutoPlay,
                             onTrailerAutoPlayToggle = { viewModel.setTrailerAutoPlay(it) },
                             onDeviceModeClick = {
@@ -782,6 +800,8 @@ fun SettingsScreen(
                             autoPlayNext = uiState.autoPlayNext,
                             autoPlaySingleSource = uiState.autoPlaySingleSource,
                             autoPlayMinQuality = uiState.autoPlayMinQuality,
+                            autoPlayRegex = uiState.autoPlayRegex,
+                            autoPlayRegexOptions = autoPlayRegexOptions,
                             contentLanguage = uiState.contentLanguage,
                             subtitleSize = uiState.subtitleSize,
                             subtitleColor = uiState.subtitleColor,
@@ -796,6 +816,7 @@ fun SettingsScreen(
                             onAutoPlayToggle = { viewModel.setAutoPlayNext(it) },
                             onAutoPlaySingleSourceToggle = { viewModel.setAutoPlaySingleSource(it) },
                             onAutoPlayMinQualityClick = { viewModel.cycleAutoPlayMinQuality() },
+                            onAutoPlayRegexClick = openAutoPlayRegexPicker,
                             trailerAutoPlay = uiState.trailerAutoPlay,
                             onTrailerAutoPlayToggle = { viewModel.setTrailerAutoPlay(it) },
                             onDeviceModeClick = {
@@ -1068,6 +1089,22 @@ fun SettingsScreen(
                     showContentLanguagePicker = false
                 },
                 onDismiss = { showContentLanguagePicker = false }
+            )
+        }
+
+        if (showAutoPlayRegexPicker) {
+            SubtitlePickerModal(
+                title = "Auto-Play Match Mode",
+                options = autoPlayRegexOptions.map { it.first },
+                selected = autoPlayRegexOptions.firstOrNull { it.second == uiState.autoPlayRegex }?.first ?: "Disabled",
+                focusedIndex = autoPlayRegexPickerIndex,
+                onFocusChange = { autoPlayRegexPickerIndex = it },
+                onSelect = { displayName ->
+                    val pattern = autoPlayRegexOptions.firstOrNull { it.first == displayName }?.second ?: ""
+                    viewModel.setAutoPlayRegex(pattern)
+                    showAutoPlayRegexPicker = false
+                },
+                onDismiss = { showAutoPlayRegexPicker = false }
             )
         }
 
@@ -2110,6 +2147,8 @@ private fun GeneralSettings(
     autoPlayNext: Boolean,
     autoPlaySingleSource: Boolean,
     autoPlayMinQuality: String,
+    autoPlayRegex: String,
+    autoPlayRegexOptions: List<Pair<String, String>>,
     subtitleSize: String = "Medium",
     subtitleColor: String = "White",
     deviceModeOverride: String = "auto",
@@ -2123,6 +2162,7 @@ private fun GeneralSettings(
     onAutoPlayToggle: (Boolean) -> Unit,
     onAutoPlaySingleSourceToggle: (Boolean) -> Unit,
     onAutoPlayMinQualityClick: () -> Unit,
+    onAutoPlayRegexClick: () -> Unit,
     onDeviceModeClick: () -> Unit = {},
     onContentLanguageClick: () -> Unit = {},
     onSkipProfileSelectionToggle: (Boolean) -> Unit = {},
@@ -2217,6 +2257,15 @@ private fun GeneralSettings(
             value = autoPlayMinQuality,
             isFocused = focusedIndex == 7,
             onClick = onAutoPlayMinQualityClick
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        SettingsRow(
+            icon = Icons.Default.FilterList,
+            title = "Auto-Play Match Mode",
+            subtitle = if (autoPlayRegex.isBlank()) "None" else autoPlayRegexOptions.firstOrNull { it.second == autoPlayRegex }?.first ?: "Custom",
+            value = if (autoPlayRegex.isBlank()) "Settings" else "Enabled",
+            isFocused = focusedIndex == 8,
+            onClick = onAutoPlayRegexClick
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsToggleRow(
@@ -4174,6 +4223,23 @@ private fun SubtitlePickerModal(
         }
     }
 }
+
+private val autoPlayRegexOptions = listOf(
+    "Disabled" to "",
+    "Any 1080p+" to "(2160p|4k|1080p)",
+    "4K / Remux" to "(2160p|4k|remux)",
+    "1080p Standard" to "(1080p|full\\s*hd)",
+    "720p / Smaller" to "(720p|webrip|web-dl)",
+    "WEB Sources" to "(web[-\\s]?dl|webrip)",
+    "BluRay Quality" to "(bluray|b[dr]rip|remux)",
+    "HEVC / x265" to "(hevc|x265|h\\.265)",
+    "AVC / x264" to "(x264|h\\.264|avc)",
+    "HDR / Dolby Vision" to "(hdr|hdr10\\+?|dv|dolby\\s*vision)",
+    "Dolby Atmos / DTS" to "(atmos|truehd|dts[-\\s]?hd|dtsx?)",
+    "English" to "(\\beng\\b|english)",
+    "No CAM/TS" to "^(?!.*\\b(cam|hdcam|ts|telesync)\\b).*$",
+    "No REMUX/HDR" to "(?is)^(?!.*\\b(hdr|hdr10|dv|dolby|vision|hevc|remux|2160p)\\b).+$"
+)
 
 /** All TMDB-supported languages as (code, displayName) pairs. */
 val TMDB_LANGUAGES = listOf(
