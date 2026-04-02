@@ -130,6 +130,8 @@ data class SettingsUiState(
     val deviceModeOverride: String = "auto",
     // Skip profile selection
     val skipProfileSelection: Boolean = false,
+    // Spoiler protection
+    val hideEpisodeSpoilers: Boolean = false,
     // Toast
     val toastMessage: String? = null,
     val toastType: ToastType = ToastType.INFO
@@ -177,6 +179,7 @@ class SettingsViewModel @Inject constructor(
     private fun autoPlayMinQualityKey() = profileManager.profileStringKey("auto_play_min_quality")
     private fun autoPlayMinQualityKeyFor(profileId: String) = profileManager.profileStringKeyFor(profileId, "auto_play_min_quality")
     private fun trailerAutoPlayKey() = profileManager.profileBooleanKey("trailer_auto_play")
+    private fun hideEpisodeSpoilersKey() = profileManager.profileBooleanKey("hide_episode_spoilers")
 
     private fun subtitleSizeKey() = profileManager.profileStringKey("subtitle_size")
     private fun subtitleColorKey() = profileManager.profileStringKey("subtitle_color")
@@ -250,6 +253,7 @@ class SettingsViewModel @Inject constructor(
             val deviceModeOverride = prefs[com.arflix.tv.util.DEVICE_MODE_OVERRIDE_KEY] ?: "auto"
             val skipProfileSelection = prefs[com.arflix.tv.util.SKIP_PROFILE_SELECTION_KEY] ?: false
             val contentLang = prefs[contentLanguageKey()] ?: "en-US"
+            val hideEpisodeSpoilers = prefs[hideEpisodeSpoilersKey()] ?: false
             // Apply content language to MediaRepository immediately
             mediaRepository.contentLanguage = if (contentLang == "en-US") null else contentLang
             var autoPlay = prefs[autoPlayNextKey()] ?: true
@@ -264,6 +268,7 @@ class SettingsViewModel @Inject constructor(
             }
             val autoPlayMinQuality = normalizeAutoPlayMinQuality(prefs[autoPlayMinQualityKey()])
             val trailerAutoPlay = prefs[trailerAutoPlayKey()] ?: false
+            val hideEpisodeSpoilers = prefs[hideEpisodeSpoilersKey()] ?: false
 
             val subtitleSize = prefs[subtitleSizeKey()] ?: "Medium"
             val subtitleColor = prefs[subtitleColorKey()] ?: "White"
@@ -303,6 +308,7 @@ class SettingsViewModel @Inject constructor(
                 autoPlaySingleSource = autoPlaySingleSource,
                 autoPlayMinQuality = autoPlayMinQuality,
                 trailerAutoPlay = trailerAutoPlay,
+                hideEpisodeSpoilers = hideEpisodeSpoilers,
 
                 subtitleSize = subtitleSize,
                 subtitleColor = subtitleColor,
@@ -781,6 +787,14 @@ class SettingsViewModel @Inject constructor(
 
     fun setTrailerAutoPlay(enabled: Boolean) {
         viewModelScope.launch { context.settingsDataStore.edit { it[trailerAutoPlayKey()] = enabled }; _uiState.value = _uiState.value.copy(trailerAutoPlay = enabled); syncLocalStateToCloud(silent = true) }
+    }
+
+    fun setHideEpisodeSpoilers(enabled: Boolean) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[hideEpisodeSpoilersKey()] = enabled }
+            _uiState.value = _uiState.value.copy(hideEpisodeSpoilers = enabled)
+            syncLocalStateToCloud(silent = true)
+        }
     }
 
     fun cycleSubtitleSize() {

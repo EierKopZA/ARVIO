@@ -82,8 +82,8 @@ data class DetailsUiState(
     val playEpisode: Int? = null,
     val playLabel: String? = null,
     val playPositionMs: Long? = null,
-    val autoPlaySingleSource: Boolean = true,
-    val autoPlayMinQuality: String = "Any"
+    val autoPlayMinQuality: String = "Any",
+    val hideEpisodeSpoilers: Boolean = false
 )
 
 data class StreamingServiceUi(
@@ -178,6 +178,7 @@ class DetailsViewModel @Inject constructor(
     @Volatile private var initialLoadComplete = false
     private fun autoPlaySingleSourceKey() = profileManager.profileBooleanKey("auto_play_single_source")
     private fun autoPlayMinQualityKey() = profileManager.profileStringKey("auto_play_min_quality")
+    private fun hideEpisodeSpoilersKey() = profileManager.profileBooleanKey("hide_episode_spoilers")
 
     private fun isBlankRating(value: String): Boolean {
         return value.isBlank() || value == "0.0" || value == "0"
@@ -229,6 +230,7 @@ class DetailsViewModel @Inject constructor(
                 val prefs = context.settingsDataStore.data.first()
                 val autoPlaySingleSource = prefs[autoPlaySingleSourceKey()] ?: true
                 val autoPlayMinQuality = normalizeAutoPlayMinQuality(prefs[autoPlayMinQualityKey()])
+                val hideEpisodeSpoilers = prefs[hideEpisodeSpoilersKey()] ?: false
 
                 val previousState = _uiState.value
                 val previousMatches = previousState.item?.id == mediaId &&
@@ -259,7 +261,8 @@ class DetailsViewModel @Inject constructor(
                         null
                     },
                     autoPlaySingleSource = autoPlaySingleSource,
-                    autoPlayMinQuality = autoPlayMinQuality
+                    autoPlayMinQuality = autoPlayMinQuality,
+                    hideEpisodeSpoilers = hideEpisodeSpoilers
                 )
 
                 val itemDeferred = async {

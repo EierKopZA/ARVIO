@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -1197,6 +1198,7 @@ private fun DetailsContent(
                             EpisodeCard(
                                 episode = episode,
                                 isFocused = false,
+                                hideEpisodeSpoilers = uiState.hideEpisodeSpoilers,
                                 onClick = { onEpisodeClick(index) }
                             )
                         }
@@ -1754,6 +1756,7 @@ private fun DetailsContent(
                             EpisodeCard(
                                 episode = episode,
                                 isFocused = isFocused,
+                                hideEpisodeSpoilers = uiState.hideEpisodeSpoilers,
                                 onClick = { onEpisodeClick(index) }
                             )
                         }
@@ -2208,6 +2211,7 @@ private fun PremiumActionButton(
 private fun EpisodeCard(
     episode: Episode,
     isFocused: Boolean,
+    hideEpisodeSpoilers: Boolean = false,
     onClick: () -> Unit = {}
 ) {
     val configuration = LocalConfiguration.current
@@ -2283,6 +2287,35 @@ private fun EpisodeCard(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
+
+            val isHidden = hideEpisodeSpoilers && !episode.isWatched
+            if (isHidden) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.97f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.VisibilityOff,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.5f),
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "HIDDEN SPOILER",
+                            style = ArvioSkin.typography.caption.copy(
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 1.sp
+                            ),
+                            color = Color.White.copy(alpha = 0.5f)
+                        )
+                    }
+                }
+            }
 
             Box(
                 modifier = Modifier

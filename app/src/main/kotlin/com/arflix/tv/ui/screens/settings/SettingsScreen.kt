@@ -253,7 +253,7 @@ fun SettingsScreen(
         if (scrollState.maxValue <= 0) return@LaunchedEffect
 
         val maxIndex = when (sectionIndex) {
-            0 -> 13 // General: 14 items
+            0 -> 14 // General: 15 items
             1 -> 3 // IPTV: Configure + Refresh + Delete + Stalker
             2 -> uiState.catalogs.size // Catalogs
             3 -> uiState.addons.size // Addons
@@ -626,6 +626,8 @@ fun SettingsScreen(
                             onAutoPlayMinQualityClick = { viewModel.cycleAutoPlayMinQuality() },
                             trailerAutoPlay = uiState.trailerAutoPlay,
                             onTrailerAutoPlayToggle = { viewModel.setTrailerAutoPlay(it) },
+                            hideEpisodeSpoilers = uiState.hideEpisodeSpoilers,
+                            onHideEpisodeSpoilersToggle = { viewModel.setHideEpisodeSpoilers(it) },
                             onDeviceModeClick = {
                                 val next = when (uiState.deviceModeOverride) { "auto" -> "tv"; "tv" -> "tablet"; "tablet" -> "phone"; else -> "auto" }
                                 viewModel.setDeviceModeOverride(next)
@@ -798,6 +800,8 @@ fun SettingsScreen(
                             onAutoPlayMinQualityClick = { viewModel.cycleAutoPlayMinQuality() },
                             trailerAutoPlay = uiState.trailerAutoPlay,
                             onTrailerAutoPlayToggle = { viewModel.setTrailerAutoPlay(it) },
+                            hideEpisodeSpoilers = uiState.hideEpisodeSpoilers,
+                            onHideEpisodeSpoilersToggle = { viewModel.setHideEpisodeSpoilers(it) },
                             onDeviceModeClick = {
                                 val next = when (uiState.deviceModeOverride) { "auto" -> "tv"; "tv" -> "tablet"; "tablet" -> "phone"; else -> "auto" }
                                 viewModel.setDeviceModeOverride(next)
@@ -2129,7 +2133,9 @@ private fun GeneralSettings(
     trailerAutoPlay: Boolean = false,
     onSubtitleSizeClick: () -> Unit = {},
     onSubtitleColorClick: () -> Unit = {},
-    onTrailerAutoPlayToggle: (Boolean) -> Unit = {}
+    onTrailerAutoPlayToggle: (Boolean) -> Unit = {},
+    hideEpisodeSpoilers: Boolean = false,
+    onHideEpisodeSpoilersToggle: (Boolean) -> Unit = {}
 ) {
     Column {
         // ── Language & Subtitles ──
@@ -2227,12 +2233,20 @@ private fun GeneralSettings(
             onToggle = onTrailerAutoPlayToggle
         )
         Spacer(modifier = Modifier.height(10.dp))
+        SettingsToggleRow(
+            title = "Hide Spoilers",
+            subtitle = "Blur thumbnails for unwatched episodes",
+            isEnabled = hideEpisodeSpoilers,
+            isFocused = focusedIndex == 9,
+            onToggle = onHideEpisodeSpoilersToggle
+        )
+        Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
             icon = Icons.Default.Movie,
             title = "Match Frame Rate",
             subtitle = "Off, Seamless, or Always",
             value = frameRateMatchingMode,
-            isFocused = focusedIndex == 9,
+            isFocused = focusedIndex == 10,
             onClick = onFrameRateMatchingClick
         )
 
@@ -2250,7 +2264,7 @@ private fun GeneralSettings(
             title = "Card Layout",
             subtitle = "Landscape or poster cards",
             value = cardLayoutMode,
-            isFocused = focusedIndex == 10,
+            isFocused = focusedIndex == 11,
             onClick = onCardLayoutToggle
         )
         Spacer(modifier = Modifier.height(10.dp))
@@ -2264,7 +2278,7 @@ private fun GeneralSettings(
                 "phone" -> "Phone"
                 else -> "Auto"
             },
-            isFocused = focusedIndex == 11,
+            isFocused = focusedIndex == 12,
             onClick = onDeviceModeClick
         )
         Spacer(modifier = Modifier.height(10.dp))
@@ -2272,7 +2286,7 @@ private fun GeneralSettings(
             title = "Skip Profile Selection",
             subtitle = "Auto-load last used profile",
             isEnabled = skipProfileSelection,
-            isFocused = focusedIndex == 12,
+            isFocused = focusedIndex == 13,
             onToggle = onSkipProfileSelectionToggle
         )
 
@@ -2290,7 +2304,7 @@ private fun GeneralSettings(
             title = "DNS Provider",
             subtitle = "Resolve API and stream requests",
             value = dnsProvider,
-            isFocused = focusedIndex == 13,
+            isFocused = focusedIndex == 14,
             onClick = onDnsProviderClick
         )
     }
