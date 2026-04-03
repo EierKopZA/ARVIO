@@ -31,9 +31,7 @@ import kotlinx.coroutines.delay
 import android.content.Context
 import android.text.format.DateFormat
 import androidx.compose.ui.platform.LocalContext
-import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 
 /**
  * Top bar clock display with optional profile indicator
@@ -139,9 +137,6 @@ private fun ProfileIndicator(
 }
 
 private fun getCurrentTime(context: Context): String {
-    val pattern = if (DateFormat.is24HourFormat(context)) "HH:mm" else "h:mm a"
-    val sdf = SimpleDateFormat(pattern, Locale.getDefault())
-    return sdf.format(Date())
+    val timeFormat = DateFormat.getTimeFormat(context)
+    return timeFormat.format(Date())
 }
-
-
