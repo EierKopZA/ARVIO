@@ -1,5 +1,6 @@
 package com.arflix.tv.ui.screens.home
 
+import com.arflix.tv.data.repository.ProfileManager
 import android.app.ActivityManager
 import android.content.Context
 import com.arflix.tv.util.settingsDataStore
