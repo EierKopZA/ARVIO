@@ -1628,47 +1628,46 @@ fun PlayerScreen(
                         useController = false
                         setKeepContentOnPlayerReset(true)
                         resizeMode = playerResizeMode
-
-                        // Enable subtitle view with Netflix-style: bold white text with black outline
-                        subtitleView?.apply {
-                            // Read subtitle appearance from user settings
-                            val subSizeSp = when (subtitleSizePref) {
-                                "Small" -> 18f; "Large" -> 30f; "Extra Large" -> 36f; else -> 24f
-                            }
-                            val subFgColor = when (subtitleColorPref) {
-                                "Yellow" -> android.graphics.Color.YELLOW
-                                "Green" -> android.graphics.Color.GREEN
-                                "Cyan" -> android.graphics.Color.CYAN
-                                else -> android.graphics.Color.WHITE
-                            }
-                            val paddingFraction = when (subtitleOffsetPref) {
-                                "Lowest" -> 0.02f
-                                "Lower" -> 0.05f
-                                "Normal" -> 0.08f
-                                "Higher" -> 0.13f
-                                "Highest" -> 0.18f
-                                else -> 0.08f
-                            }
-                            setStyle(
-                                androidx.media3.ui.CaptionStyleCompat(
-                                    subFgColor,
-                                    android.graphics.Color.TRANSPARENT,
-                                    android.graphics.Color.TRANSPARENT,
-                                    androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE,
-                                    android.graphics.Color.BLACK,
-                                    android.graphics.Typeface.DEFAULT_BOLD
-                                )
-                            )
-                            setApplyEmbeddedStyles(false)
-                            setApplyEmbeddedFontSizes(false)
-                            setFixedTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, subSizeSp)
-                            setBottomPaddingFraction(paddingFraction)
-                        }
                     }
                 },
                 update = { playerView ->
                     playerView.player = exoPlayer
                     playerView.resizeMode = playerResizeMode
+                    
+                    // Apply subtitle styling in the update block so it reacts to state changes instantly
+                    playerView.subtitleView?.apply {
+                        val subSizeSp = when (subtitleSizePref) {
+                            "Small" -> 18f; "Large" -> 30f; "Extra Large" -> 36f; else -> 24f
+                        }
+                        val subFgColor = when (subtitleColorPref) {
+                            "Yellow" -> android.graphics.Color.YELLOW
+                            "Green" -> android.graphics.Color.GREEN
+                            "Cyan" -> android.graphics.Color.CYAN
+                            else -> android.graphics.Color.WHITE
+                        }
+                        val paddingFraction = when (subtitleOffsetPref) {
+                            "Lowest" -> 0.02f
+                            "Lower" -> 0.05f
+                            "Normal" -> 0.08f
+                            "Higher" -> 0.13f
+                            "Highest" -> 0.18f
+                            else -> 0.08f
+                        }
+                        setStyle(
+                            androidx.media3.ui.CaptionStyleCompat(
+                                subFgColor,
+                                android.graphics.Color.TRANSPARENT,
+                                android.graphics.Color.TRANSPARENT,
+                                androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+                                android.graphics.Color.BLACK,
+                                android.graphics.Typeface.DEFAULT_BOLD
+                            )
+                        )
+                        setApplyEmbeddedStyles(false)
+                        setApplyEmbeddedFontSizes(false)
+                        setFixedTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, subSizeSp)
+                        setBottomPaddingFraction(paddingFraction)
+                    }
                 },
                 modifier = Modifier.fillMaxSize()
             )
