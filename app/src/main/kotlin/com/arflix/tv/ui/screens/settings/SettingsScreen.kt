@@ -253,7 +253,7 @@ fun SettingsScreen(
         if (scrollState.maxValue <= 0) return@LaunchedEffect
 
         val maxIndex = when (sectionIndex) {
-            0 -> 13 // General: 14 items
+            0 -> 14 // General: 15 items
             1 -> 3 // IPTV: Configure + Refresh + Delete + Stalker
             2 -> uiState.catalogs.size // Catalogs
             3 -> uiState.addons.size // Addons
@@ -433,7 +433,7 @@ fun SettingsScreen(
                                 Zone.CONTENT -> {
                                     // Dynamic max based on current section
                                     val maxIndex = when (sectionIndex) {
-                                        0 -> 13 // General: 14 items
+                                        0 -> 14 // General: 15 items
                                         1 -> 3 // IPTV: Configure + Refresh + Delete + Stalker
                                         2 -> uiState.catalogs.size // Catalogs: Add + N catalogs
                                         3 -> uiState.addons.size // Addons: N addons + "Add Custom" button
@@ -482,11 +482,12 @@ fun SettingsScreen(
                                                 6 -> viewModel.setAutoPlaySingleSource(!uiState.autoPlaySingleSource)
                                                 7 -> viewModel.cycleAutoPlayMinQuality()
                                                 8 -> viewModel.setTrailerAutoPlay(!uiState.trailerAutoPlay)
-                                                9 -> viewModel.cycleFrameRateMatchingMode()
-                                                10 -> viewModel.toggleCardLayoutMode()
-                                                11 -> { val next = when (uiState.deviceModeOverride) { "auto" -> "tv"; "tv" -> "tablet"; "tablet" -> "phone"; else -> "auto" }; viewModel.setDeviceModeOverride(next) }
-                                                12 -> viewModel.setSkipProfileSelection(!uiState.skipProfileSelection)
-                                                13 -> openDnsProviderPicker()
+                                                9 -> viewModel.setTrailerAudioEnabled(!uiState.trailerAudioEnabled)
+                                                10 -> viewModel.cycleFrameRateMatchingMode()
+                                                11 -> viewModel.toggleCardLayoutMode()
+                                                12 -> { val next = when (uiState.deviceModeOverride) { "auto" -> "tv"; "tv" -> "tablet"; "tablet" -> "phone"; else -> "auto" }; viewModel.setDeviceModeOverride(next) }
+                                                13 -> viewModel.setSkipProfileSelection(!uiState.skipProfileSelection)
+                                                14 -> openDnsProviderPicker()
                                             }
                                         }
                                         1 -> { // IPTV
@@ -625,7 +626,9 @@ fun SettingsScreen(
                             onAutoPlaySingleSourceToggle = { viewModel.setAutoPlaySingleSource(it) },
                             onAutoPlayMinQualityClick = { viewModel.cycleAutoPlayMinQuality() },
                             trailerAutoPlay = uiState.trailerAutoPlay,
+                            trailerAudioEnabled = uiState.trailerAudioEnabled,
                             onTrailerAutoPlayToggle = { viewModel.setTrailerAutoPlay(it) },
+                            onTrailerAudioToggle = { viewModel.setTrailerAudioEnabled(it) },
                             onDeviceModeClick = {
                                 val next = when (uiState.deviceModeOverride) { "auto" -> "tv"; "tv" -> "tablet"; "tablet" -> "phone"; else -> "auto" }
                                 viewModel.setDeviceModeOverride(next)
@@ -797,7 +800,9 @@ fun SettingsScreen(
                             onAutoPlaySingleSourceToggle = { viewModel.setAutoPlaySingleSource(it) },
                             onAutoPlayMinQualityClick = { viewModel.cycleAutoPlayMinQuality() },
                             trailerAutoPlay = uiState.trailerAutoPlay,
+                            trailerAudioEnabled = uiState.trailerAudioEnabled,
                             onTrailerAutoPlayToggle = { viewModel.setTrailerAutoPlay(it) },
+                            onTrailerAudioToggle = { viewModel.setTrailerAudioEnabled(it) },
                             onDeviceModeClick = {
                                 val next = when (uiState.deviceModeOverride) { "auto" -> "tv"; "tv" -> "tablet"; "tablet" -> "phone"; else -> "auto" }
                                 viewModel.setDeviceModeOverride(next)
@@ -2127,9 +2132,11 @@ private fun GeneralSettings(
     onContentLanguageClick: () -> Unit = {},
     onSkipProfileSelectionToggle: (Boolean) -> Unit = {},
     trailerAutoPlay: Boolean = false,
+    trailerAudioEnabled: Boolean = false,
     onSubtitleSizeClick: () -> Unit = {},
     onSubtitleColorClick: () -> Unit = {},
-    onTrailerAutoPlayToggle: (Boolean) -> Unit = {}
+    onTrailerAutoPlayToggle: (Boolean) -> Unit = {},
+    onTrailerAudioToggle: (Boolean) -> Unit = {}
 ) {
     Column {
         // ── Language & Subtitles ──
@@ -2227,12 +2234,20 @@ private fun GeneralSettings(
             onToggle = onTrailerAutoPlayToggle
         )
         Spacer(modifier = Modifier.height(10.dp))
+        SettingsToggleRow(
+            title = "Trailer Audio",
+            subtitle = "Enable sound for banners",
+            isEnabled = trailerAudioEnabled,
+            isFocused = focusedIndex == 9,
+            onToggle = onTrailerAudioToggle
+        )
+        Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
             icon = Icons.Default.Movie,
             title = "Match Frame Rate",
             subtitle = "Off, Seamless, or Always",
             value = frameRateMatchingMode,
-            isFocused = focusedIndex == 9,
+            isFocused = focusedIndex == 10,
             onClick = onFrameRateMatchingClick
         )
 
@@ -2250,7 +2265,7 @@ private fun GeneralSettings(
             title = "Card Layout",
             subtitle = "Landscape or poster cards",
             value = cardLayoutMode,
-            isFocused = focusedIndex == 10,
+            isFocused = focusedIndex == 11,
             onClick = onCardLayoutToggle
         )
         Spacer(modifier = Modifier.height(10.dp))
@@ -2264,7 +2279,7 @@ private fun GeneralSettings(
                 "phone" -> "Phone"
                 else -> "Auto"
             },
-            isFocused = focusedIndex == 11,
+            isFocused = focusedIndex == 12,
             onClick = onDeviceModeClick
         )
         Spacer(modifier = Modifier.height(10.dp))
@@ -2272,7 +2287,7 @@ private fun GeneralSettings(
             title = "Skip Profile Selection",
             subtitle = "Auto-load last used profile",
             isEnabled = skipProfileSelection,
-            isFocused = focusedIndex == 12,
+            isFocused = focusedIndex == 13,
             onToggle = onSkipProfileSelectionToggle
         )
 
@@ -2290,7 +2305,7 @@ private fun GeneralSettings(
             title = "DNS Provider",
             subtitle = "Resolve API and stream requests",
             value = dnsProvider,
-            isFocused = focusedIndex == 13,
+            isFocused = focusedIndex == 14,
             onClick = onDnsProviderClick
         )
     }

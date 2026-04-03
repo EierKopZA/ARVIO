@@ -66,6 +66,7 @@ data class HomeUiState(
     val heroLogoUrl: String? = null,
     val heroTrailerKey: String? = null,
     val trailerAutoPlay: Boolean = false,
+    val trailerAudioEnabled: Boolean = false,
     val heroOverviewOverride: String? = null,
     val cardLogoUrls: Map<String, String> = emptyMap(),
     // Previous hero for crossfade (Phase 2.1)
@@ -96,6 +97,7 @@ class HomeViewModel @Inject constructor(
     private val watchlistRepository: WatchlistRepository,
     private val cloudSyncRepository: CloudSyncRepository,
     private val launcherContinueWatchingRepository: LauncherContinueWatchingRepository,
+    private val profileManager: ProfileManager,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
     private val imageLoader: ImageLoader by lazy(LazyThreadSafetyMode.NONE) {
@@ -648,7 +650,14 @@ class HomeViewModel @Inject constructor(
                 val trailerEnabled = prefs.asMap().any { (key, value) ->
                     key.name.endsWith("_trailer_auto_play") && value == true
                 }
-                _uiState.value = _uiState.value.copy(trailerAutoPlay = trailerEnabled)
+                
+                // Scope trailer audio strictly to the active profile
+                val trailerAudio = prefs[profileManager.profileBooleanKey("trailer_audio_enabled")] ?: false
+                
+                _uiState.value = _uiState.value.copy(
+                    trailerAutoPlay = trailerEnabled,
+                    trailerAudioEnabled = trailerAudio
+                )
             } catch (_: Exception) {}
         }
         // Restore logo URL cache from disk for instant clearlogos on cold start

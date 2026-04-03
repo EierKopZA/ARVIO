@@ -57,8 +57,8 @@ class CloudSyncRepository @Inject constructor(
         val frameRateMatchingMode: String = "Off",
         val autoPlayNext: Boolean = true,
         val autoPlaySingleSource: Boolean = true,
-        val autoPlayMinQuality: String = "Any",
         val trailerAutoPlay: Boolean = false,
+        val trailerAudioEnabled: Boolean = false,
         val includeSpecials: Boolean = false,
         val iptvHiddenGroups: String = "",
         val iptvGroupOrder: String = ""
@@ -70,6 +70,8 @@ class CloudSyncRepository @Inject constructor(
         profileManager.profileStringKeyFor(profileId, "content_language")
     private fun trailerAutoPlayKeyFor(profileId: String) =
         profileManager.profileBooleanKeyFor(profileId, "trailer_auto_play")
+    private fun trailerAudioEnabledKeyFor(profileId: String) =
+        profileManager.profileBooleanKeyFor(profileId, "trailer_audio_enabled")
 
     private fun subtitleSizeKeyFor(profileId: String) =
         profileManager.profileStringKeyFor(profileId, "subtitle_size")
@@ -151,6 +153,7 @@ class CloudSyncRepository @Inject constructor(
                         contentLanguage = prefs[contentLanguageKeyFor(profile.id)] ?: "en-US",
 
                         trailerAutoPlay = prefs[trailerAutoPlayKeyFor(profile.id)] ?: false,
+                        trailerAudioEnabled = prefs[trailerAudioEnabledKeyFor(profile.id)] ?: false,
                         subtitleSize = prefs[subtitleSizeKeyFor(profile.id)] ?: "Medium",
                         subtitleColor = prefs[subtitleColorKeyFor(profile.id)] ?: "White",
                         iptvHiddenGroups = prefs[iptvHiddenGroupsKeyFor(profile.id)] ?: "",
@@ -370,6 +373,7 @@ class CloudSyncRepository @Inject constructor(
                         prefs[contentLanguageKeyFor(profileId)] = state.contentLanguage
 
                         prefs[trailerAutoPlayKeyFor(profileId)] = state.trailerAutoPlay
+                        prefs[trailerAudioEnabledKeyFor(profileId)] = state.trailerAudioEnabled
                         prefs[subtitleSizeKeyFor(profileId)] = state.subtitleSize
                         prefs[subtitleColorKeyFor(profileId)] = state.subtitleColor
                         if (state.iptvHiddenGroups.isNotBlank()) prefs[iptvHiddenGroupsKeyFor(profileId)] = state.iptvHiddenGroups
