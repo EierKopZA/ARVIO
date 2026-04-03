@@ -57,6 +57,7 @@ class CloudSyncRepository @Inject constructor(
         val frameRateMatchingMode: String = "Off",
         val autoPlayNext: Boolean = true,
         val autoPlaySingleSource: Boolean = true,
+        val autoPlayMinQuality: String = "Any", // Ensure this name is exact
         val trailerAutoPlay: Boolean = false,
         val trailerAudioEnabled: Boolean = false,
         val includeSpecials: Boolean = false,
@@ -151,7 +152,6 @@ class CloudSyncRepository @Inject constructor(
                         defaultSubtitle = prefs[defaultSubtitleKeyFor(profile.id)] ?: "Off",
                         defaultAudioLanguage = prefs[defaultAudioLanguageKeyFor(profile.id)] ?: "Auto (Original)",
                         contentLanguage = prefs[contentLanguageKeyFor(profile.id)] ?: "en-US",
-
                         trailerAutoPlay = prefs[trailerAutoPlayKeyFor(profile.id)] ?: false,
                         trailerAudioEnabled = prefs[trailerAudioEnabledKeyFor(profile.id)] ?: false,
                         subtitleSize = prefs[subtitleSizeKeyFor(profile.id)] ?: "Medium",
@@ -371,7 +371,6 @@ class CloudSyncRepository @Inject constructor(
                         prefs[defaultSubtitleKeyFor(profileId)] = state.defaultSubtitle
                         prefs[defaultAudioLanguageKeyFor(profileId)] = state.defaultAudioLanguage
                         prefs[contentLanguageKeyFor(profileId)] = state.contentLanguage
-
                         prefs[trailerAutoPlayKeyFor(profileId)] = state.trailerAutoPlay
                         prefs[trailerAudioEnabledKeyFor(profileId)] = state.trailerAudioEnabled
                         prefs[subtitleSizeKeyFor(profileId)] = state.subtitleSize
