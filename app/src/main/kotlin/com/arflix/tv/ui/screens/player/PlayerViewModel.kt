@@ -176,18 +176,25 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             val preferredAudioLanguage = resolvePreferredAudioLanguage()
             val frameRateMatchingMode = resolveFrameRateMatchingMode()
-            val subSize = context.settingsDataStore.data.first()[profileManager.profileStringKey("subtitle_size")] ?: "Medium"
-            val subColor = context.settingsDataStore.data.first()[profileManager.profileStringKey("subtitle_color")] ?: "White"
-            val subOffset = context.settingsDataStore.data.first()[profileManager.profileStringKey("subtitle_offset")] ?: "Normal"
+            
             _uiState.value = PlayerUiState(
                 isLoading = true,
                 isLoadingStreams = true,
                 preferredAudioLanguage = preferredAudioLanguage,
-                frameRateMatchingMode = frameRateMatchingMode,
-                subtitleSize = subSize,
-                subtitleColor = subColor,
-                subtitleOffset = subOffset
+                frameRateMatchingMode = frameRateMatchingMode
+                // Removed the static subtitle assignments from here
             )
+
+            // ADD THIS: Continuously listen for subtitle preference changes
+            launch {
+                context.settingsDataStore.data.collect { prefs ->
+                    _uiState.value = _uiState.value.copy(
+                        subtitleSize = prefs[profileManager.profileStringKey("subtitle_size")] ?: "Medium",
+                        subtitleColor = prefs[profileManager.profileStringKey("subtitle_color")] ?: "White",
+                        subtitleOffset = prefs[profileManager.profileStringKey("subtitle_offset")] ?: "Normal"
+                    )
+                }
+            }
 
             // If stream URL provided, use it directly (except magnet links, which require resolution).
             if (providedStreamUrl != null) {
