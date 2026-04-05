@@ -178,6 +178,8 @@ fun SettingsScreen(
     var dnsProviderPickerIndex by remember { mutableIntStateOf(0) }
     var showContentLanguagePicker by remember { mutableStateOf(false) }
     var contentLanguagePickerIndex by remember { mutableIntStateOf(0) }
+    var showUiModeWarningDialog by remember { mutableStateOf(false) }
+    var nextUiMode by remember { mutableStateOf("") }
 
     val sections = remember { listOf("general", "iptv", "catalogs", "addons", "accounts") }
 
@@ -206,6 +208,15 @@ fun SettingsScreen(
     val openContentLanguagePicker = {
         contentLanguagePickerIndex = TMDB_LANGUAGES.indexOfFirst { it.first == uiState.contentLanguage }.coerceAtLeast(0)
         showContentLanguagePicker = true
+    }
+    val openUiModeWarningDialog = {
+        nextUiMode = when (uiState.deviceModeOverride) {
+            "auto" -> "tv"
+            "tv" -> "tablet"
+            "tablet" -> "phone"
+            else -> "auto"
+        }
+        showUiModeWarningDialog = true
     }
 
     LaunchedEffect(Unit) {
@@ -305,6 +316,7 @@ fun SettingsScreen(
         showAudioLanguagePicker ||
         showDnsProviderPicker ||
         showContentLanguagePicker ||
+        showUiModeWarningDialog ||
         uiState.showCloudPairDialog ||
         uiState.showCloudEmailPasswordDialog ||
         uiState.showAppUpdateDialog ||
@@ -484,7 +496,7 @@ fun SettingsScreen(
                                                 8 -> viewModel.setTrailerAutoPlay(!uiState.trailerAutoPlay)
                                                 9 -> viewModel.cycleFrameRateMatchingMode()
                                                 10 -> viewModel.toggleCardLayoutMode()
-                                                11 -> { val next = when (uiState.deviceModeOverride) { "auto" -> "tv"; "tv" -> "tablet"; "tablet" -> "phone"; else -> "auto" }; viewModel.setDeviceModeOverride(next) }
+                                                11 -> openUiModeWarningDialog()
                                                 12 -> viewModel.setSkipProfileSelection(!uiState.skipProfileSelection)
                                                 13 -> openDnsProviderPicker()
                                             }
@@ -626,10 +638,7 @@ fun SettingsScreen(
                             onAutoPlayMinQualityClick = { viewModel.cycleAutoPlayMinQuality() },
                             trailerAutoPlay = uiState.trailerAutoPlay,
                             onTrailerAutoPlayToggle = { viewModel.setTrailerAutoPlay(it) },
-                            onDeviceModeClick = {
-                                val next = when (uiState.deviceModeOverride) { "auto" -> "tv"; "tv" -> "tablet"; "tablet" -> "phone"; else -> "auto" }
-                                viewModel.setDeviceModeOverride(next)
-                            },
+                            onDeviceModeClick = openUiModeWarningDialog,
                             onContentLanguageClick = openContentLanguagePicker,
                             onSubtitleSizeClick = { viewModel.cycleSubtitleSize() },
                             onSkipProfileSelectionToggle = { viewModel.setSkipProfileSelection(it) },
@@ -798,10 +807,7 @@ fun SettingsScreen(
                             onAutoPlayMinQualityClick = { viewModel.cycleAutoPlayMinQuality() },
                             trailerAutoPlay = uiState.trailerAutoPlay,
                             onTrailerAutoPlayToggle = { viewModel.setTrailerAutoPlay(it) },
-                            onDeviceModeClick = {
-                                val next = when (uiState.deviceModeOverride) { "auto" -> "tv"; "tv" -> "tablet"; "tablet" -> "phone"; else -> "auto" }
-                                viewModel.setDeviceModeOverride(next)
-                            },
+                            onDeviceModeClick = openUiModeWarningDialog,
                             onContentLanguageClick = openContentLanguagePicker,
                             onSkipProfileSelectionToggle = { viewModel.setSkipProfileSelection(it) },
                             onSubtitleSizeClick = { viewModel.cycleSubtitleSize() },
@@ -1114,6 +1120,19 @@ fun SettingsScreen(
             UnknownSourcesModal(
                 onDismiss = { viewModel.dismissAppUpdateDialog() },
                 onOpenSettings = { viewModel.openUnknownSourcesSettings() }
+            )
+        }
+
+        if (showUiModeWarningDialog) {
+            UiModeWarningDialog(
+                nextMode = nextUiMode,
+                onConfirm = {
+                    viewModel.setDeviceModeOverride(nextUiMode)
+                    showUiModeWarningDialog = false
+                },
+                onDismiss = {
+                    showUiModeWarningDialog = false
+                }
             )
         }
 
@@ -4177,6 +4196,142 @@ private fun SubtitlePickerModal(
 }
 
 /** All TMDB-supported languages as (code, displayName) pairs. */
+@Composable
+private fun UiModeWarningDialog(
+    nextMode: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var focusedIndex by remember { mutableIntStateOf(0) } // 0 = Confirm, 1 = Cancel
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
+
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true,
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        ModalScrim(onDismiss = onDismiss) {
+            Column(
+                modifier = Modifier
+                    .then(
+                        if (LocalDeviceType.current.isTouchDevice()) Modifier.fillMaxWidth(0.92f).widthIn(max = 400.dp)
+                        else Modifier.width(400.dp)
+                    )
+                    .background(BackgroundElevated, RoundedCornerShape(16.dp))
+                    .padding(if (LocalDeviceType.current.isTouchDevice()) 20.dp else 28.dp)
+                    .focusRequester(focusRequester)
+                    .focusable()
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown) {
+                            when (event.key) {
+                                Key.Back, Key.Escape -> {
+                                    onDismiss()
+                                    true
+                                }
+                                Key.DirectionLeft -> {
+                                    if (focusedIndex > 0) focusedIndex--
+                                    true
+                                }
+                                Key.DirectionRight -> {
+                                    if (focusedIndex < 1) focusedIndex++
+                                    true
+                                }
+                                Key.Enter, Key.DirectionCenter -> {
+                                    if (focusedIndex == 0) onConfirm() else onDismiss()
+                                    true
+                                }
+                                else -> false
+                            }
+                        } else false
+                    }
+            ) {
+                Text(
+                    text = "Change UI Mode",
+                    style = ArflixTypography.sectionTitle,
+                    color = TextPrimary
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                val modeString = when (nextMode) {
+                    "tv" -> "TV"
+                    "tablet" -> "Tablet"
+                    "phone" -> "Phone"
+                    else -> "Auto"
+                }
+
+                Text(
+                    text = "Are you sure you want to change the UI mode to $modeString?",
+                    style = ArflixTypography.body,
+                    color = TextSecondary
+                )
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    val isConfirmFocused = focusedIndex == 0
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                color = if (isConfirmFocused) SuccessGreen else SuccessGreen.copy(alpha = 0.6f)
+                            )
+                            .clickable { onConfirm() }
+                            .border(
+                                width = if (isConfirmFocused) 2.dp else 0.dp,
+                                color = if (isConfirmFocused) Color.White else Color.Transparent,
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .padding(vertical = 14.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Confirm",
+                            style = ArflixTypography.button,
+                            color = Color.White
+                        )
+                    }
+
+                    val isCancelFocused = focusedIndex == 1
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                color = if (isCancelFocused) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f)
+                            )
+                            .clickable { onDismiss() }
+                            .border(
+                                width = if (isCancelFocused) 2.dp else 0.dp,
+                                color = if (isCancelFocused) Pink else Color.Transparent,
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .padding(vertical = 14.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Cancel",
+                            style = ArflixTypography.button,
+                            color = if (isCancelFocused) TextPrimary else TextSecondary
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 val TMDB_LANGUAGES = listOf(
     "en-US" to "English",
     "nl-NL" to "Dutch (Nederlands)",
