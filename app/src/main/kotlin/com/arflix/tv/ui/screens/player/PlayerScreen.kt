@@ -1373,7 +1373,10 @@ fun PlayerScreen(
         }
     }
 
-    val isTouchDevice = LocalDeviceType.current.isTouchDevice()
+    val playerDeviceType = LocalDeviceType.current
+    val isTouchDevice = playerDeviceType.isTouchDevice()
+    val isTablet = playerDeviceType == com.arflix.tv.util.DeviceType.TABLET
+    val isPhone = playerDeviceType == com.arflix.tv.util.DeviceType.PHONE
     // Read subtitle appearance prefs
     val subtitleSizePref = uiState.subtitleSize
     val subtitleColorPref = uiState.subtitleColor
@@ -1935,14 +1938,20 @@ fun PlayerScreen(
                     }
                 }
 
-                // Bottom controls - positioned at very bottom
+                // Bottom controls - positioned at very bottom.
+                // Gradient made stronger on touch devices so the icon row stays readable
+                // against bright content. Issue #97.
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter)
                         .background(
                             Brush.verticalGradient(
-                                colorStops = arrayOf(
+                                colorStops = if (isTouchDevice) arrayOf(
+                                    0.0f to Color.Transparent,
+                                    0.2f to Color.Black.copy(alpha = 0.5f),
+                                    1.0f to Color.Black.copy(alpha = 0.85f)
+                                ) else arrayOf(
                                     0.0f to Color.Transparent,
                                     0.3f to Color.Black.copy(alpha = 0.2f),
                                     1.0f to Color.Black.copy(alpha = 0.7f)
@@ -1952,20 +1961,58 @@ fun PlayerScreen(
                         .padding(horizontal = if (isTouchDevice) 24.dp else 48.dp)
                         .padding(top = if (isTouchDevice) 16.dp else 24.dp, bottom = if (isTouchDevice) 32.dp else 24.dp)
                 ) {
-                    // Icon buttons row - left-aligned, tight above trackbar (avoids subtitle overlap)
+                    // Icon buttons row. On tablet we center the row and use slightly
+                    // larger buttons than TV to match the shorter viewing distance and
+                    // the Material minimum touch-target of 48dp. Phone keeps the compact
+                    // left-aligned layout to fit vertical orientation. Issue #97.
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Start,
+                        horizontalArrangement = if (isTablet) Arrangement.Center else Arrangement.Start,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val smallBtn = if (isTouchDevice) 24.dp else 28.dp
-                        val smallIcon = if (isTouchDevice) 17.dp else 19.dp
-                        val midBtn = if (isTouchDevice) 28.dp else 30.dp
-                        val midIcon = if (isTouchDevice) 20.dp else 22.dp
-                        val bigBtn = if (isTouchDevice) 34.dp else 38.dp
-                        val bigIcon = if (isTouchDevice) 26.dp else 28.dp
-                        val gap = if (isTouchDevice) 10.dp else 14.dp
-                        val wideGap = if (isTouchDevice) 14.dp else 18.dp
+                        // Three-way sizing: phone (compact) < TV (medium) < tablet (largest).
+                        // The old logic made touch devices SMALLER than TV which was
+                        // backwards for tablet finger targets.
+                        val smallBtn = when {
+                            isTablet -> 36.dp
+                            isPhone -> 24.dp
+                            else -> 28.dp
+                        }
+                        val smallIcon = when {
+                            isTablet -> 22.dp
+                            isPhone -> 17.dp
+                            else -> 19.dp
+                        }
+                        val midBtn = when {
+                            isTablet -> 40.dp
+                            isPhone -> 28.dp
+                            else -> 30.dp
+                        }
+                        val midIcon = when {
+                            isTablet -> 24.dp
+                            isPhone -> 20.dp
+                            else -> 22.dp
+                        }
+                        val bigBtn = when {
+                            isTablet -> 48.dp
+                            isPhone -> 34.dp
+                            else -> 38.dp
+                        }
+                        val bigIcon = when {
+                            isTablet -> 30.dp
+                            isPhone -> 26.dp
+                            else -> 28.dp
+                        }
+                        val gap = when {
+                            isTablet -> 16.dp
+                            isPhone -> 10.dp
+                            else -> 14.dp
+                        }
+                        val wideGap = when {
+                            isTablet -> 20.dp
+                            isPhone -> 14.dp
+                            else -> 18.dp
+                        }
 
                         // Subtitles
                         PlayerIconButton(icon = Icons.Default.ClosedCaption, contentDescription = "Subtitles & Audio",
