@@ -120,11 +120,19 @@ object ApkInstaller {
 
                 // Use a broadcast PendingIntent instead of activity — works reliably
                 // on Android TV where the Application context isn't an Activity.
-                val intent = Intent("com.arvio.tv.INSTALL_COMPLETE")
+                // The action is per-applicationId so it's unique per flavor / install.
+                // ApkInstallReceiver (registered in the manifest) picks up the callback and
+                // launches the system install-confirmation Activity on STATUS_PENDING_USER_ACTION,
+                // without which the session commit succeeds silently but no install ever happens.
+                val intent = Intent(ApkInstallReceiver.actionFor(context))
                     .setPackage(context.packageName)
-                val pendingIntent = PendingIntent.getBroadcast(
-                    context, sessionId, intent,
+                val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+                } else {
+                    PendingIntent.FLAG_UPDATE_CURRENT
+                }
+                val pendingIntent = PendingIntent.getBroadcast(
+                    context.applicationContext, sessionId, intent, flags
                 )
 
                 session.commit(pendingIntent.intentSender)
@@ -135,13 +143,17 @@ object ApkInstaller {
             }
         }
 
-        // Fallback: classic ACTION_VIEW install
-        val uri = FileProvider.getUriForFile(context, "${BuildConfig.APPLICATION_ID}.fileprovider", apkFile)
-        val intent = Intent(Intent.ACTION_VIEW)
-            .setDataAndType(uri, "application/vnd.android.package-archive")
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        // Fallback: classic ACTION_VIEW install (used when the session path throws OR on API < 21).
+        try {
+            val uri = FileProvider.getUriForFile(context, "${BuildConfig.APPLICATION_ID}.fileprovider", apkFile)
+            val intent = Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, "application/vnd.android.package-archive")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
-        context.startActivity(intent)
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            System.err.println("[ApkInstaller] Fallback ACTION_VIEW install failed: ${e.message}")
+        }
     }
 }
