@@ -913,8 +913,19 @@ class HomeViewModel @Inject constructor(
 
             try {
                 if (_uiState.value.categories.isEmpty()) {
+                    // Build the early skeleton from the default catalog list minus any
+                    // preinstalled catalogs the user has explicitly hidden for the active
+                    // profile. Without this filter, deleted catalogs flash back into view
+                    // for 1-3 seconds on every cold load and on every loadHomeData() call,
+                    // which is the "catalog reappears after deletion" symptom reported in
+                    // issue #71 (and the duplicate #74 which we already closed).
+                    val hiddenForSkeleton = runCatching {
+                        catalogRepository.getHiddenPreinstalledCatalogIdsForActiveProfile().toSet()
+                    }.getOrDefault(emptySet())
+                    val skeletonDefaults = mediaRepository.getDefaultCatalogConfigs()
+                        .filterNot { cfg -> cfg.isPreinstalled && cfg.id in hiddenForSkeleton }
                     val earlySkeleton = buildProfileSkeletonCategories(
-                        savedCatalogs = mediaRepository.getDefaultCatalogConfigs(),
+                        savedCatalogs = skeletonDefaults,
                         cachedContinueWatching = emptyList()
                     )
                     if (requestId != loadHomeRequestId) return@loadHome
