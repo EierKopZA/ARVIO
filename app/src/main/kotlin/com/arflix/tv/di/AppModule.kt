@@ -131,4 +131,21 @@ object AppModule {
     fun provideArmApi(@Named("arm") retrofit: Retrofit): ArmApi {
         return retrofit.create(ArmApi::class.java)
     }
+
+    @Provides
+    @Singleton
+    @Named("jikan")
+    fun provideJikanRetrofit(okHttpClient: OkHttpClient): Retrofit {
+        return Retrofit.Builder()
+            .baseUrl("https://api.jikan.moe/v4/")
+            .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideJikanApi(@Named("jikan") retrofit: Retrofit): com.arflix.tv.data.api.JikanApi {
+        return retrofit.create(com.arflix.tv.data.api.JikanApi::class.java)
+    }
 }

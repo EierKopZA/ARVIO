@@ -598,6 +598,7 @@ fun DetailsScreen(
                     usePosterCards = usePosterCards,
                     isMobile = isMobile,
                     onBack = onBack,
+                    malScore = uiState.malScore,
                     onButtonClick = { idx ->
                         when (idx) {
                             0 -> { // Play
@@ -939,6 +940,9 @@ private fun DetailsContent(
     // Persistent back callback used by the phone-layout back button overlay
     // (issue #43). No-op by default so tablet/TV callers don't need to pass it.
     onBack: () -> Unit = {},
+    // MAL community score for anime (issue #45). Plumbed from DetailsUiState.malScore.
+    // Null for non-anime or when Jikan returns no score.
+    malScore: Double? = null,
     onButtonClick: (Int) -> Unit = {},
     onSeasonClick: (Int) -> Unit = {},
     onEpisodeClick: (Int) -> Unit = {},
@@ -1098,6 +1102,30 @@ private fun DetailsContent(
                                     text = rating,
                                     style = ArflixTypography.caption.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
                                     color = Color.Black
+                                )
+                            }
+                        }
+                        // MyAnimeList community score badge for anime only. Populated
+                        // asynchronously after details load via Jikan API. Hidden when
+                        // the content isn't anime or Jikan returns null. Issue #45.
+                        if (malScore != null && malScore > 0.0) {
+                            Text(text = "|", style = ArflixTypography.caption.copy(fontSize = 12.sp), color = Color.White.copy(alpha = 0.4f))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                modifier = Modifier
+                                    .background(Color(0xFF2E51A2), RoundedCornerShape(3.dp))
+                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                            ) {
+                                Text(
+                                    text = "MAL",
+                                    style = ArflixTypography.caption.copy(fontSize = 8.sp, fontWeight = FontWeight.Black),
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = String.format("%.1f", malScore),
+                                    style = ArflixTypography.caption.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                                    color = Color.White
                                 )
                             }
                         }
@@ -1508,6 +1536,29 @@ private fun DetailsContent(
                                 text = rating,
                                 style = ArflixTypography.caption.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
                                 color = Color.Black
+                            )
+                        }
+                    }
+
+                    // MAL community score badge for anime. Issue #45.
+                    if (malScore != null && malScore > 0.0) {
+                        Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier
+                                .background(Color(0xFF2E51A2), RoundedCornerShape(3.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "MAL",
+                                style = ArflixTypography.caption.copy(fontSize = 9.sp, fontWeight = FontWeight.Black),
+                                color = Color.White
+                            )
+                            Text(
+                                text = String.format("%.1f", malScore),
+                                style = ArflixTypography.caption.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                                color = Color.White
                             )
                         }
                     }
