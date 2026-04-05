@@ -46,7 +46,8 @@ data class WatchHistoryEntry(
 class WatchHistoryRepository @Inject constructor(
     private val authRepositoryProvider: Provider<AuthRepository>,
     private val supabaseApi: SupabaseApi,
-    private val profileManager: ProfileManager
+    private val profileManager: ProfileManager,
+    private val realtimeSyncManagerProvider: Provider<RealtimeSyncManager>
 ) {
     private fun profileHistorySource(base: String): String {
         // Use stable profile ID so rename/case changes do not split history.
@@ -128,18 +129,28 @@ class WatchHistoryRepository @Inject constructor(
 
         // Upsert - update if exists, insert if not.
         // Retry without stream_* fields if the Supabase schema hasn't been migrated yet.
+        var saved = false
         try {
             executeSupabaseCall("save watch progress") { auth ->
                 supabaseApi.upsertWatchHistory(auth = auth, item = entry.toRecord())
             }
+            saved = true
         } catch (e: HttpException) {
             runCatching {
                 val fallback = entry.copy(stream_key = null, stream_addon_id = null, stream_title = null)
                 executeSupabaseCall("save watch progress fallback") { auth ->
                     supabaseApi.upsertWatchHistory(auth = auth, item = fallback.toRecord())
                 }
+                saved = true
             }
         } catch (_: Exception) {
+        }
+
+        // Mark the local write timestamp on the realtime manager so the incoming
+        // watch_history realtime event (which fires back to our own device) doesn't
+        // trigger a redundant Home Continue Watching refresh. See issue #91 fix.
+        if (saved) {
+            runCatching { realtimeSyncManagerProvider.get().markLocalWatchHistoryWrite() }
         }
     }
 

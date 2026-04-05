@@ -98,6 +98,7 @@ class HomeViewModel @Inject constructor(
     private val watchlistRepository: WatchlistRepository,
     private val cloudSyncRepository: CloudSyncRepository,
     private val launcherContinueWatchingRepository: LauncherContinueWatchingRepository,
+    private val realtimeSyncManager: com.arflix.tv.data.repository.RealtimeSyncManager,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
     private val imageLoader: ImageLoader by lazy(LazyThreadSafetyMode.NONE) {
@@ -662,6 +663,18 @@ class HomeViewModel @Inject constructor(
                     showBudget = showBudget
                 )
             } catch (_: Exception) {}
+        }
+
+        // Subscribe to realtime watch_history events so Continue Watching refreshes on
+        // this device within a few seconds of another device updating the shared
+        // Supabase watch_history table. Before this, mid-playback updates from device A
+        // were only visible on device B after a manual Home ON_RESUME or the 5-minute
+        // periodic sync — so switching devices mid-episode always showed the stale
+        // resume position. Fixes #91.
+        viewModelScope.launch {
+            realtimeSyncManager.watchHistoryEvents.collect {
+                refreshContinueWatchingOnly(force = true)
+            }
         }
         // Restore logo URL cache from disk for instant clearlogos on cold start
         restoreLogoCacheFromDisk()
