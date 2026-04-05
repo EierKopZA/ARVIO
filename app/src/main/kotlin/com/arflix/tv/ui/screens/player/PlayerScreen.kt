@@ -1425,6 +1425,75 @@ fun PlayerScreen(
             )
             .onKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown) {
+                    // Fire TV / Bluetooth media remote keys. These must be handled at the
+                    // top of the key handler so they work regardless of which overlay
+                    // (error, menus, post-episode prompt) is currently visible. Previously
+                    // only Key.MediaPlayPause was handled, and only when the subtitle menu
+                    // was open \u2014 useless for the common case of watching with a Fire TV
+                    // stick remote that has dedicated FF/RW/Play buttons. Issue #68 (part).
+                    when (event.key) {
+                        Key.MediaPlayPause -> {
+                            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                            showControls = true
+                            return@onKeyEvent true
+                        }
+                        Key.MediaPlay -> {
+                            exoPlayer.play()
+                            showControls = true
+                            return@onKeyEvent true
+                        }
+                        Key.MediaPause -> {
+                            exoPlayer.pause()
+                            showControls = true
+                            return@onKeyEvent true
+                        }
+                        Key.MediaStop -> {
+                            exoPlayer.pause()
+                            onBack()
+                            return@onKeyEvent true
+                        }
+                        Key.MediaRewind -> {
+                            queueControlsSeek(-10_000L)
+                            showControls = true
+                            return@onKeyEvent true
+                        }
+                        Key.MediaFastForward -> {
+                            queueControlsSeek(10_000L)
+                            showControls = true
+                            return@onKeyEvent true
+                        }
+                        Key.MediaNext -> {
+                            // Jump to next episode if this is a TV series and we have a
+                            // current episode. No-op for movies (there is no next).
+                            if (mediaType == MediaType.TV && seasonNumber != null && episodeNumber != null) {
+                                val selected = uiState.selectedStream
+                                onPlayNext(
+                                    seasonNumber,
+                                    episodeNumber + 1,
+                                    selected?.addonId?.takeIf { it.isNotBlank() },
+                                    selected?.source?.takeIf { it.isNotBlank() },
+                                    selected?.behaviorHints?.bingeGroup?.takeIf { it.isNotBlank() }
+                                )
+                                return@onKeyEvent true
+                            }
+                        }
+                        Key.MediaPrevious -> {
+                            // Jump to previous episode for TV series. Movies: no-op.
+                            if (mediaType == MediaType.TV && seasonNumber != null && episodeNumber != null && episodeNumber > 1) {
+                                val selected = uiState.selectedStream
+                                onPlayNext(
+                                    seasonNumber,
+                                    episodeNumber - 1,
+                                    selected?.addonId?.takeIf { it.isNotBlank() },
+                                    selected?.source?.takeIf { it.isNotBlank() },
+                                    selected?.behaviorHints?.bingeGroup?.takeIf { it.isNotBlank() }
+                                )
+                                return@onKeyEvent true
+                            }
+                        }
+                        else -> Unit // fall through to normal handling
+                    }
+
                     // Handle error modal
                     if (uiState.error != null) {
                         val maxButtons = if (uiState.isSetupError) 0 else 1 // setup=1 button, error=2 buttons
