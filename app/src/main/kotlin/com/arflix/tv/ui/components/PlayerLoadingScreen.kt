@@ -11,6 +11,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
@@ -102,13 +103,16 @@ fun PlayerLoadingScreen(
     Box(modifier = modifier.fillMaxSize()) {
         // Backdrop image (blurred)
         if (backdropUrl != null) {
+            // Load at tiny resolution — inherently blurry when scaled up to
+            // fullscreen. Avoids Modifier.blur() which kills GPU on low-end TV.
             AsyncImage(
-                model = backdropUrl,
+                model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                    .data(backdropUrl)
+                    .size(64, 36)
+                    .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .blur(20.dp)
+                modifier = Modifier.fillMaxSize()
             )
         }
 
@@ -183,7 +187,7 @@ fun PlayerLoadingScreen(
                     modifier = Modifier
                         .size(90.dp)
                         .scale(playScale)
-                        .blur(25.dp)
+                        .alpha(0.3f) // Soft glow via alpha, no GPU blur
                         .background(
                             Brush.radialGradient(
                                 colors = listOf(

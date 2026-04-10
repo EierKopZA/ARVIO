@@ -44,8 +44,10 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Widgets
@@ -152,6 +154,8 @@ fun SettingsScreen(
     var addonActionIndex by remember { mutableIntStateOf(0) }
     // Sub-focus for catalog rows: 0 = edit, 1 = up, 2 = down, 3 = delete
     var catalogActionIndex by remember { mutableIntStateOf(0) }
+    // Sub-focus for IPTV rows: 0 = enable, 1 = edit, 2 = up, 3 = down, 4 = delete
+    var iptvActionIndex by remember { mutableIntStateOf(0) }
     // Rename dialog state
     var showCatalogRename by remember { mutableStateOf(false) }
     var renameCatalogId by remember { mutableStateOf("") }
@@ -161,13 +165,13 @@ fun SettingsScreen(
     var showCustomAddonInput by remember { mutableStateOf(false) }
     var customAddonUrl by remember { mutableStateOf("") }
     var showIptvInput by remember { mutableStateOf(false) }
-    var showStalkerInput by remember { mutableStateOf(false) }
-    var stalkerPortalUrlInput by remember { mutableStateOf("") }
-    var stalkerMacInput by remember { mutableStateOf("") }
-    var iptvM3uUrl by remember { mutableStateOf(uiState.iptvM3uUrl) }
-    var iptvEpgUrl by remember { mutableStateOf(uiState.iptvEpgUrl) }
-    var iptvXtreamUsername by remember { mutableStateOf("") }
-    var iptvXtreamPassword by remember { mutableStateOf("") }
+    var editingIptvIndex by remember { mutableIntStateOf(-1) }
+    var iptvEditName by remember { mutableStateOf("") }
+    var iptvEditUrl by remember { mutableStateOf("") }
+    var iptvEditEpg by remember { mutableStateOf("") }
+    var iptvEditEnabled by remember { mutableStateOf(true) }
+    var iptvEditXtreamUser by remember { mutableStateOf("") }
+    var iptvEditXtreamPass by remember { mutableStateOf("") }
     var showCatalogInput by remember { mutableStateOf(false) }
     var catalogInputUrl by remember { mutableStateOf("") }
     var showSubtitlePicker by remember { mutableStateOf(false) }
@@ -221,7 +225,7 @@ fun SettingsScreen(
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
-        suppressSelectUntilMs = SystemClock.elapsedRealtime() + 300L
+        suppressSelectUntilMs = SystemClock.elapsedRealtime() + 150L
     }
 
     LaunchedEffect(showSubtitlePicker, uiState.subtitleOptions) {
@@ -264,8 +268,8 @@ fun SettingsScreen(
         if (scrollState.maxValue <= 0) return@LaunchedEffect
 
         val maxIndex = when (sectionIndex) {
-            0 -> 15 // General: 16 items (Show Budget #72 + Volume Boost #88)
-            1 -> 3 // IPTV: Configure + Refresh + Delete + Stalker
+            0 -> 16 // General: 17 items (+ Clock Format)
+            1 -> 2 + uiState.iptvPlaylists.size // IPTV: Add + playlist rows + Refresh + Delete
             2 -> uiState.catalogs.size // Catalogs
             3 -> uiState.addons.size // Addons
             4 -> 3 // Accounts
@@ -280,12 +284,38 @@ fun SettingsScreen(
         }
     }
 
-    LaunchedEffect(uiState.iptvM3uUrl, uiState.iptvEpgUrl, showIptvInput) {
+    LaunchedEffect(uiState.iptvPlaylists, showIptvInput, editingIptvIndex) {
         if (!showIptvInput) {
-            iptvM3uUrl = uiState.iptvM3uUrl
-            iptvEpgUrl = uiState.iptvEpgUrl
-            iptvXtreamUsername = ""
-            iptvXtreamPassword = ""
+            editingIptvIndex = -1
+            iptvEditName = ""
+            iptvEditUrl = ""
+            iptvEditEpg = ""
+            iptvEditEnabled = true
+            iptvEditXtreamUser = ""
+            iptvEditXtreamPass = ""
+        } else {
+            val playlist = uiState.iptvPlaylists.getOrNull(editingIptvIndex)
+            iptvEditName = playlist?.name ?: "List ${editingIptvIndex + 2}".takeIf { editingIptvIndex >= 0 } ?: "List ${uiState.iptvPlaylists.size + 1}"
+            // When editing, try to extract Xtream credentials from the saved URL
+            // (normalizeIptvInput converts "host user pass" to a full get.php URL)
+            val savedUrl = playlist?.m3uUrl ?: ""
+            val xtreamUri = try { android.net.Uri.parse(savedUrl) } catch (_: Exception) { null }
+            val xtreamUser = xtreamUri?.getQueryParameter("username") ?: ""
+            val xtreamPass = xtreamUri?.getQueryParameter("password") ?: ""
+            val isXtreamUrl = savedUrl.contains("get.php") && xtreamUser.isNotBlank() && xtreamPass.isNotBlank()
+            if (isXtreamUrl) {
+                // Show just the host:port for Xtream URLs
+                val baseUrl = "${xtreamUri!!.scheme}://${xtreamUri.host}${if (xtreamUri.port > 0) ":${xtreamUri.port}" else ""}"
+                iptvEditUrl = baseUrl
+                iptvEditXtreamUser = xtreamUser
+                iptvEditXtreamPass = xtreamPass
+            } else {
+                iptvEditUrl = savedUrl
+                iptvEditXtreamUser = ""
+                iptvEditXtreamPass = ""
+            }
+            iptvEditEpg = playlist?.epgUrl ?: ""
+            iptvEditEnabled = playlist?.enabled ?: true
         }
     }
 
@@ -309,7 +339,6 @@ fun SettingsScreen(
     val hasBlockingModal =
         showCustomAddonInput ||
         showIptvInput ||
-        showStalkerInput ||
         showCatalogInput ||
         showCatalogRename ||
         showSubtitlePicker ||
@@ -357,11 +386,14 @@ fun SettingsScreen(
                                 Zone.CONTENT -> {
                                     if (currentSection == "addons" && contentFocusIndex < uiState.addons.size && addonActionIndex > 0) {
                                         addonActionIndex = 0
+                                    } else if (currentSection == "iptv" && contentFocusIndex in 1..uiState.iptvPlaylists.size && iptvActionIndex > 0) {
+                                        iptvActionIndex--
                                     } else if (currentSection == "catalogs" && contentFocusIndex > 0 && catalogActionIndex > 0) {
                                         catalogActionIndex--
                                     } else {
                                         activeZone = Zone.SECTION
                                         addonActionIndex = 0
+                                        iptvActionIndex = 0
                                         catalogActionIndex = 0
                                     }
                                 }
@@ -386,6 +418,7 @@ fun SettingsScreen(
                                 Zone.SECTION -> {
                                     activeZone = Zone.CONTENT
                                     addonActionIndex = 0
+                                    iptvActionIndex = 0
                                     catalogActionIndex = 0
                                 }
                                 Zone.CONTENT -> {
@@ -395,6 +428,8 @@ fun SettingsScreen(
                                         focusedAddonCanDelete
                                     ) {
                                         addonActionIndex = 1
+                                    } else if (currentSection == "iptv" && contentFocusIndex in 1..uiState.iptvPlaylists.size && iptvActionIndex < 4) {
+                                        iptvActionIndex++
 } else if (currentSection == "catalogs" && contentFocusIndex > 0 && catalogActionIndex < 3) {
                                         catalogActionIndex++
                                     }
@@ -410,6 +445,7 @@ fun SettingsScreen(
                                         sectionIndex--
                                         contentFocusIndex = 0 // Reset content focus when changing section
                                         addonActionIndex = 0
+                                        iptvActionIndex = 0
                                         catalogActionIndex = 0
                                     } else {
                                         activeZone = Zone.SIDEBAR
@@ -420,6 +456,7 @@ fun SettingsScreen(
                                     if (contentFocusIndex > 0) {
                                         contentFocusIndex--
                                         addonActionIndex = 0 // Reset to toggle when changing rows
+                                        iptvActionIndex = 0
                                         catalogActionIndex = 0
                                     } else {
                                         activeZone = Zone.SECTION
@@ -439,22 +476,24 @@ fun SettingsScreen(
                                         sectionIndex++
                                         contentFocusIndex = 0 // Reset content focus when changing section
                                         addonActionIndex = 0
+                                        iptvActionIndex = 0
                                         catalogActionIndex = 0
                                     }
                                 }
                                 Zone.CONTENT -> {
                                     // Dynamic max based on current section
                                     val maxIndex = when (sectionIndex) {
-                                        0 -> 15 // General: 16 items (Show Budget #72 + Volume Boost #88)
-                                        1 -> 3 // IPTV: Configure + Refresh + Delete + Stalker
+                                        0 -> 16 // General: 17 items (+ Clock Format)
+                                        1 -> 2 + uiState.iptvPlaylists.size // IPTV dynamic rows
                                         2 -> uiState.catalogs.size // Catalogs: Add + N catalogs
                                         3 -> uiState.addons.size // Addons: N addons + "Add Custom" button
-                                        4 -> 3 // Accounts: Cloud + Trakt + Switch Profile + App Update
+                                        4 -> 2 // Accounts: Cloud + Trakt + App Update
                                         else -> 0
                                     }
                                     if (contentFocusIndex < maxIndex) {
                                         contentFocusIndex++
                                         addonActionIndex = 0 // Reset to toggle when changing rows
+                                        iptvActionIndex = 0
                                         catalogActionIndex = 0
                                     }
                                 }
@@ -462,9 +501,6 @@ fun SettingsScreen(
                             true
                         }
                         Key.Enter, Key.DirectionCenter -> {
-                            if (SystemClock.elapsedRealtime() < suppressSelectUntilMs) {
-                                return@onPreviewKeyEvent true
-                            }
                             when (activeZone) {
                                 Zone.SIDEBAR -> {
                                     if (hasProfile && sidebarFocusIndex == 0) {
@@ -498,26 +534,58 @@ fun SettingsScreen(
                                                 10 -> viewModel.toggleCardLayoutMode()
                                                 11 -> openUiModeWarningDialog()
                                                 12 -> viewModel.setSkipProfileSelection(!uiState.skipProfileSelection)
-                                                13 -> viewModel.setShowBudget(!uiState.showBudget)
-                                                14 -> openDnsProviderPicker()
-                                                15 -> viewModel.cycleVolumeBoost()
+                                                13 -> viewModel.cycleClockFormat()
+                                                14 -> viewModel.setShowBudget(!uiState.showBudget)
+                                                15 -> openDnsProviderPicker()
+                                                16 -> viewModel.cycleVolumeBoost()
                                             }
                                         }
                                         1 -> { // IPTV
-                                            when (contentFocusIndex) {
-                                                0 -> {
+                                            when {
+                                                contentFocusIndex == 0 -> {
+                                                    editingIptvIndex = -1
                                                     showIptvInput = true
                                                 }
-                                                1 -> {
+                                                contentFocusIndex in 1..uiState.iptvPlaylists.size -> {
+                                                    val idx = contentFocusIndex - 1
+                                                    val updated = uiState.iptvPlaylists.toMutableList()
+                                                    val playlist = updated.getOrNull(idx)
+                                                    if (playlist != null) {
+                                                        when (iptvActionIndex) {
+                                                            0 -> {
+                                                                updated[idx] = playlist.copy(enabled = !playlist.enabled)
+                                                                viewModel.saveIptvPlaylists(updated)
+                                                            }
+                                                            1 -> {
+                                                                editingIptvIndex = idx
+                                                                showIptvInput = true
+                                                            }
+                                                            2 -> {
+                                                                if (idx > 0) {
+                                                                    val item = updated.removeAt(idx)
+                                                                    updated.add(idx - 1, item)
+                                                                    viewModel.saveIptvPlaylists(updated)
+                                                                }
+                                                            }
+                                                            3 -> {
+                                                                if (idx < updated.lastIndex) {
+                                                                    val item = updated.removeAt(idx)
+                                                                    updated.add(idx + 1, item)
+                                                                    viewModel.saveIptvPlaylists(updated)
+                                                                }
+                                                            }
+                                                            else -> {
+                                                                updated.removeAt(idx)
+                                                                viewModel.saveIptvPlaylists(updated)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                contentFocusIndex == uiState.iptvPlaylists.size + 1 -> {
                                                     viewModel.refreshIptv(force = true)
                                                 }
-                                                2 -> {
+                                                contentFocusIndex == uiState.iptvPlaylists.size + 2 -> {
                                                     viewModel.clearIptvConfig()
-                                                }
-                                                3 -> {
-                                                    stalkerPortalUrlInput = uiState.iptvStalkerUrl
-                                                    stalkerMacInput = uiState.iptvStalkerMac
-                                                    showStalkerInput = true
                                                 }
                                             }
                                         }
@@ -582,10 +650,7 @@ fun SettingsScreen(
                                                         viewModel.startTraktAuth()
                                                     }
                                                 }
-                                                2 -> { // Switch Profile
-                                                    onSwitchProfile()
-                                                }
-                                                3 -> { // App Update
+                                                2 -> { // App Update
                                                     if (uiState.downloadedApkPath != null) {
                                                         viewModel.installAppUpdateOrRequestPermission()
                                                     } else {
@@ -629,6 +694,7 @@ fun SettingsScreen(
                             subtitleColor = uiState.subtitleColor,
                             deviceModeOverride = uiState.deviceModeOverride,
                             skipProfileSelection = uiState.skipProfileSelection,
+                            clockFormat = uiState.clockFormat,
                             showBudget = uiState.showBudget,
                             volumeBoostDb = uiState.volumeBoostDb,
                             focusedIndex = -1,
@@ -646,13 +712,13 @@ fun SettingsScreen(
                             onContentLanguageClick = openContentLanguagePicker,
                             onSubtitleSizeClick = { viewModel.cycleSubtitleSize() },
                             onSkipProfileSelectionToggle = { viewModel.setSkipProfileSelection(it) },
+                            onClockFormatClick = { viewModel.cycleClockFormat() },
                             onShowBudgetToggle = { viewModel.setShowBudget(it) },
                             onVolumeBoostClick = { viewModel.cycleVolumeBoost() },
                             onSubtitleColorClick = { viewModel.cycleSubtitleColor() }
                         )
                         "iptv" -> IptvSettings(
-                            m3uUrl = uiState.iptvM3uUrl,
-                            epgUrl = uiState.iptvEpgUrl,
+                            playlists = uiState.iptvPlaylists,
                             channelCount = uiState.iptvChannelCount,
                             isLoading = uiState.isIptvLoading,
                             error = uiState.iptvError,
@@ -660,11 +726,37 @@ fun SettingsScreen(
                             statusType = uiState.iptvStatusType,
                             progressText = uiState.iptvProgressText,
                             progressPercent = uiState.iptvProgressPercent,
-                            stalkerUrl = uiState.iptvStalkerUrl,
-                            stalkerMac = uiState.iptvStalkerMac,
                             focusedIndex = -1,
-                            onConfigure = { showIptvInput = true },
-                            onConfigureStalker = { stalkerPortalUrlInput = uiState.iptvStalkerUrl; stalkerMacInput = uiState.iptvStalkerMac; showStalkerInput = true },
+                            focusedActionIndex = iptvActionIndex,
+                            onConfigure = { editingIptvIndex = -1; showIptvInput = true },
+                            onEditPlaylist = { idx -> editingIptvIndex = idx; showIptvInput = true },
+                            onTogglePlaylist = { idx ->
+                                val updated = uiState.iptvPlaylists.toMutableList()
+                                val item = updated.getOrNull(idx) ?: return@IptvSettings
+                                updated[idx] = item.copy(enabled = !item.enabled)
+                                viewModel.saveIptvPlaylists(updated)
+                            },
+                            onMovePlaylistUp = { idx ->
+                                if (idx <= 0) return@IptvSettings
+                                val updated = uiState.iptvPlaylists.toMutableList()
+                                val item = updated.removeAt(idx)
+                                updated.add(idx - 1, item)
+                                viewModel.saveIptvPlaylists(updated)
+                            },
+                            onMovePlaylistDown = { idx ->
+                                val updated = uiState.iptvPlaylists.toMutableList()
+                                if (idx !in 0 until updated.lastIndex) return@IptvSettings
+                                val item = updated.removeAt(idx)
+                                updated.add(idx + 1, item)
+                                viewModel.saveIptvPlaylists(updated)
+                            },
+                            onDeletePlaylist = { idx ->
+                                val updated = uiState.iptvPlaylists.toMutableList()
+                                if (idx in updated.indices) {
+                                    updated.removeAt(idx)
+                                    viewModel.saveIptvPlaylists(updated)
+                                }
+                            },
                             onRefresh = { viewModel.refreshIptv() },
                             onDelete = { viewModel.clearIptvConfig() }
                         )
@@ -802,6 +894,7 @@ fun SettingsScreen(
                             subtitleColor = uiState.subtitleColor,
                             deviceModeOverride = uiState.deviceModeOverride,
                             skipProfileSelection = uiState.skipProfileSelection,
+                            clockFormat = uiState.clockFormat,
                             showBudget = uiState.showBudget,
                             volumeBoostDb = uiState.volumeBoostDb,
                             focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
@@ -818,14 +911,14 @@ fun SettingsScreen(
                             onDeviceModeClick = openUiModeWarningDialog,
                             onContentLanguageClick = openContentLanguagePicker,
                             onSkipProfileSelectionToggle = { viewModel.setSkipProfileSelection(it) },
+                            onClockFormatClick = { viewModel.cycleClockFormat() },
                             onShowBudgetToggle = { viewModel.setShowBudget(it) },
                             onVolumeBoostClick = { viewModel.cycleVolumeBoost() },
                             onSubtitleSizeClick = { viewModel.cycleSubtitleSize() },
                             onSubtitleColorClick = { viewModel.cycleSubtitleColor() }
                         )
                         "iptv" -> IptvSettings(
-                            m3uUrl = uiState.iptvM3uUrl,
-                            epgUrl = uiState.iptvEpgUrl,
+                            playlists = uiState.iptvPlaylists,
                             channelCount = uiState.iptvChannelCount,
                             isLoading = uiState.isIptvLoading,
                             error = uiState.iptvError,
@@ -833,11 +926,37 @@ fun SettingsScreen(
                             statusType = uiState.iptvStatusType,
                             progressText = uiState.iptvProgressText,
                             progressPercent = uiState.iptvProgressPercent,
-                            stalkerUrl = uiState.iptvStalkerUrl,
-                            stalkerMac = uiState.iptvStalkerMac,
                             focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
-                            onConfigure = { showIptvInput = true },
-                            onConfigureStalker = { stalkerPortalUrlInput = uiState.iptvStalkerUrl; stalkerMacInput = uiState.iptvStalkerMac; showStalkerInput = true },
+                            focusedActionIndex = iptvActionIndex,
+                            onConfigure = { editingIptvIndex = -1; showIptvInput = true },
+                            onEditPlaylist = { idx -> editingIptvIndex = idx; showIptvInput = true },
+                            onTogglePlaylist = { idx ->
+                                val updated = uiState.iptvPlaylists.toMutableList()
+                                val item = updated.getOrNull(idx) ?: return@IptvSettings
+                                updated[idx] = item.copy(enabled = !item.enabled)
+                                viewModel.saveIptvPlaylists(updated)
+                            },
+                            onMovePlaylistUp = { idx ->
+                                if (idx <= 0) return@IptvSettings
+                                val updated = uiState.iptvPlaylists.toMutableList()
+                                val item = updated.removeAt(idx)
+                                updated.add(idx - 1, item)
+                                viewModel.saveIptvPlaylists(updated)
+                            },
+                            onMovePlaylistDown = { idx ->
+                                val updated = uiState.iptvPlaylists.toMutableList()
+                                if (idx !in 0 until updated.lastIndex) return@IptvSettings
+                                val item = updated.removeAt(idx)
+                                updated.add(idx + 1, item)
+                                viewModel.saveIptvPlaylists(updated)
+                            },
+                            onDeletePlaylist = { idx ->
+                                val updated = uiState.iptvPlaylists.toMutableList()
+                                if (idx in updated.indices) {
+                                    updated.removeAt(idx)
+                                    viewModel.saveIptvPlaylists(updated)
+                                }
+                            },
                             onRefresh = { viewModel.refreshIptv() },
                             onDelete = { viewModel.clearIptvConfig() }
                         )
@@ -920,41 +1039,63 @@ fun SettingsScreen(
 
         if (showIptvInput) {
             InputModal(
-                title = "Configure IPTV",
+                title = if (editingIptvIndex >= 0) "Edit IPTV Playlist" else "Add IPTV Playlist",
                 fields = listOf(
                     InputField(
+                        label = "Playlist Name",
+                        value = iptvEditName,
+                        onValueChange = { iptvEditName = it }
+                    ),
+                    InputField(
                         label = "M3U URL or Xtream Host",
-                        value = iptvM3uUrl,
+                        value = iptvEditUrl,
                         placeholder = "https://provider.host:port",
-                        onValueChange = { iptvM3uUrl = it }
+                        onValueChange = { iptvEditUrl = it }
                     ),
                     InputField(
                         label = "Xtream Username (Optional)",
-                        value = iptvXtreamUsername,
-                        placeholder = "username",
-                        onValueChange = { iptvXtreamUsername = it }
+                        value = iptvEditXtreamUser,
+                        placeholder = "Leave empty for plain M3U",
+                        onValueChange = { iptvEditXtreamUser = it }
                     ),
                     InputField(
                         label = "Xtream Password (Optional)",
-                        value = iptvXtreamPassword,
-                        placeholder = "password",
+                        value = iptvEditXtreamPass,
+                        placeholder = "Leave empty for plain M3U",
                         isSecret = true,
-                        onValueChange = { iptvXtreamPassword = it }
+                        onValueChange = { iptvEditXtreamPass = it }
                     ),
                     InputField(
                         label = "EPG URL (Optional)",
-                        value = iptvEpgUrl,
+                        value = iptvEditEpg,
                         placeholder = "Leave empty to auto-derive for Xtream",
-                        onValueChange = { iptvEpgUrl = it }
+                        onValueChange = { iptvEditEpg = it }
                     )
                 ),
                 onConfirm = {
-                    viewModel.saveIptvConfigWithXtream(
-                        sourceOrHost = iptvM3uUrl,
-                        epgUrl = iptvEpgUrl,
-                        xtreamUsername = iptvXtreamUsername,
-                        xtreamPassword = iptvXtreamPassword
+                    // Build the m3uUrl: if Xtream credentials are provided, combine as "host user pass"
+                    val hasXtream = iptvEditXtreamUser.isNotBlank() && iptvEditXtreamPass.isNotBlank()
+                    val finalM3uUrl = if (hasXtream) {
+                        "${iptvEditUrl.trim()} ${iptvEditXtreamUser.trim()} ${iptvEditXtreamPass.trim()}"
+                    } else {
+                        iptvEditUrl
+                    }
+                    // Auto-derive EPG for Xtream if not provided
+                    val finalEpgUrl = if (hasXtream && iptvEditEpg.isBlank()) {
+                        "${iptvEditUrl.trim()} ${iptvEditXtreamUser.trim()} ${iptvEditXtreamPass.trim()}"
+                    } else {
+                        iptvEditEpg
+                    }
+                    val updated = uiState.iptvPlaylists.toMutableList()
+                    val entry = com.arflix.tv.data.repository.IptvPlaylistEntry(
+                        id = updated.getOrNull(editingIptvIndex)?.id ?: "list_${editingIptvIndex + 2}".takeIf { editingIptvIndex >= 0 } ?: "list_${updated.size + 1}",
+                        name = iptvEditName,
+                        m3uUrl = finalM3uUrl,
+                        epgUrl = finalEpgUrl,
+                        enabled = iptvEditEnabled
                     )
+                    if (editingIptvIndex in updated.indices) updated[editingIptvIndex] = entry else updated.add(entry)
+                    viewModel.saveIptvPlaylists(updated)
                     showIptvInput = false
                 },
                 onDismiss = {
@@ -963,30 +1104,7 @@ fun SettingsScreen(
             )
         }
 
-        if (showStalkerInput) {
-            InputModal(
-                title = "Stalker Portal",
-                fields = listOf(
-                    InputField(
-                        label = "Portal URL",
-                        value = stalkerPortalUrlInput,
-                        placeholder = "http://portal.example.com",
-                        onValueChange = { stalkerPortalUrlInput = it }
-                    ),
-                    InputField(
-                        label = "MAC Address",
-                        value = stalkerMacInput,
-                        placeholder = "00:1A:79:XX:XX:XX",
-                        onValueChange = { stalkerMacInput = it }
-                    )
-                ),
-                onConfirm = {
-                    viewModel.saveStalkerConfig(stalkerPortalUrlInput, stalkerMacInput)
-                    showStalkerInput = false
-                },
-                onDismiss = { showStalkerInput = false }
-            )
-        }
+        
 
         if (showCatalogInput) {
             InputModal(
@@ -2152,6 +2270,7 @@ private fun GeneralSettings(
     subtitleColor: String = "White",
     deviceModeOverride: String = "auto",
     skipProfileSelection: Boolean = false,
+    clockFormat: String = "24h",
     showBudget: Boolean = true,
     volumeBoostDb: Int = 0,
     focusedIndex: Int,
@@ -2166,6 +2285,7 @@ private fun GeneralSettings(
     onDeviceModeClick: () -> Unit = {},
     onContentLanguageClick: () -> Unit = {},
     onSkipProfileSelectionToggle: (Boolean) -> Unit = {},
+    onClockFormatClick: () -> Unit = {},
     onShowBudgetToggle: (Boolean) -> Unit = {},
     onVolumeBoostClick: () -> Unit = {},
     trailerAutoPlay: Boolean = false,
@@ -2318,13 +2438,22 @@ private fun GeneralSettings(
             onToggle = onSkipProfileSelectionToggle
         )
         Spacer(modifier = Modifier.height(10.dp))
+        SettingsRow(
+            icon = Icons.Default.Schedule,
+            title = "Clock Format",
+            subtitle = "Choose 12-hour or 24-hour time",
+            value = if (clockFormat == "12h") "12-hour" else "24-hour",
+            isFocused = focusedIndex == 13,
+            onClick = onClockFormatClick
+        )
+        Spacer(modifier = Modifier.height(10.dp))
         // Home hero controls — issue #72. The movie Budget line on the hero banner
         // makes the metadata row noisy on small screens and some users want to hide it.
         SettingsToggleRow(
             title = "Show Budget on Home",
             subtitle = "Display the movie budget on the home hero banner",
             isEnabled = showBudget,
-            isFocused = focusedIndex == 13,
+            isFocused = focusedIndex == 14,
             onToggle = onShowBudgetToggle
         )
 
@@ -2342,7 +2471,7 @@ private fun GeneralSettings(
             title = "DNS Provider",
             subtitle = "Resolve API and stream requests",
             value = dnsProvider,
-            isFocused = focusedIndex == 14,
+            isFocused = focusedIndex == 15,
             onClick = onDnsProviderClick
         )
 
@@ -2363,7 +2492,7 @@ private fun GeneralSettings(
                 0 -> "Off"
                 else -> "+${volumeBoostDb} dB"
             },
-            isFocused = focusedIndex == 15,
+            isFocused = focusedIndex == 16,
             onClick = onVolumeBoostClick
         )
     }
@@ -2372,8 +2501,7 @@ private fun GeneralSettings(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun IptvSettings(
-    m3uUrl: String,
-    epgUrl: String,
+    playlists: List<com.arflix.tv.data.repository.IptvPlaylistEntry>,
     channelCount: Int,
     isLoading: Boolean,
     error: String?,
@@ -2382,10 +2510,13 @@ private fun IptvSettings(
     progressText: String?,
     progressPercent: Int,
     focusedIndex: Int,
-    stalkerUrl: String = "",
-    stalkerMac: String = "",
+    focusedActionIndex: Int,
     onConfigure: () -> Unit,
-    onConfigureStalker: () -> Unit = {},
+    onEditPlaylist: (Int) -> Unit,
+    onTogglePlaylist: (Int) -> Unit,
+    onMovePlaylistUp: (Int) -> Unit,
+    onMovePlaylistDown: (Int) -> Unit,
+    onDeletePlaylist: (Int) -> Unit,
     onRefresh: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -2399,19 +2530,85 @@ private fun IptvSettings(
 
         SettingsRow(
             icon = Icons.Default.LiveTv,
-            title = "Playlist",
-            subtitle = if (m3uUrl.isBlank()) "Set M3U URL (or Xtream host/user/pass) and optional EPG URL" else "Playlist configured",
-            value = if (m3uUrl.isBlank()) "NOT SET" else "$channelCount CH",
+            title = "Add Playlist",
+            subtitle = if (playlists.isEmpty()) "Add up to 3 M3U / Xtream IPTV lists with names" else "Create another IPTV list",
+            value = if (playlists.size >= 3) "FULL" else "ADD",
             isFocused = focusedIndex == 0,
             onClick = onConfigure
         )
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        playlists.forEachIndexed { index, playlist ->
+            val rowIndex = index + 1
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        if (focusedIndex == rowIndex) Color.White.copy(alpha = 0.08f) else Color.Transparent,
+                        RoundedCornerShape(12.dp)
+                    )
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = playlist.name,
+                        style = ArflixTypography.body,
+                        color = if (focusedIndex == rowIndex) TextPrimary else TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = playlist.m3uUrl.take(56),
+                        style = ArflixTypography.caption,
+                        color = TextSecondary.copy(alpha = 0.72f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                CatalogActionChip(
+                    icon = if (playlist.enabled) Icons.Default.Check else Icons.Default.VisibilityOff,
+                    isFocused = focusedIndex == rowIndex && focusedActionIndex == 0,
+                    onClick = { onTogglePlaylist(index) }
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                CatalogActionChip(
+                    icon = Icons.Default.Edit,
+                    isFocused = focusedIndex == rowIndex && focusedActionIndex == 1,
+                    onClick = { onEditPlaylist(index) }
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                CatalogActionChip(
+                    icon = Icons.Default.ArrowUpward,
+                    isFocused = focusedIndex == rowIndex && focusedActionIndex == 2,
+                    onClick = { onMovePlaylistUp(index) }
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                CatalogActionChip(
+                    icon = Icons.Default.ArrowDownward,
+                    isFocused = focusedIndex == rowIndex && focusedActionIndex == 3,
+                    onClick = { onMovePlaylistDown(index) }
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                CatalogActionChip(
+                    icon = Icons.Default.Delete,
+                    isFocused = focusedIndex == rowIndex && focusedActionIndex == 4,
+                    isDestructive = true,
+                    onClick = { onDeletePlaylist(index) }
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
         val refreshSubtitle = when {
             isLoading -> "Refreshing channels and EPG..."
             error != null -> error
-            epgUrl.isBlank() -> "Reload playlist now"
+            playlists.none { it.epgUrl.isNotBlank() } -> "Reload playlists now"
             else -> "Reload playlist and EPG now"
         }
         SettingsRow(
@@ -2419,7 +2616,7 @@ private fun IptvSettings(
             title = "Refresh IPTV Data",
             subtitle = refreshSubtitle,
             value = if (isLoading) "LOADING" else "REFRESH",
-            isFocused = focusedIndex == 1,
+            isFocused = focusedIndex == playlists.size + 1,
             onClick = onRefresh
         )
 
@@ -2427,10 +2624,10 @@ private fun IptvSettings(
 
         SettingsRow(
             icon = Icons.Default.Delete,
-            title = "Delete M3U Playlist",
-            subtitle = if (m3uUrl.isBlank()) "No playlist configured" else "Remove M3U, EPG and favorites",
-            value = if (m3uUrl.isBlank()) "EMPTY" else "DELETE",
-            isFocused = focusedIndex == 2,
+            title = "Delete IPTV Playlists",
+            subtitle = if (playlists.isEmpty()) "No playlists configured" else "Remove playlists, EPG and favorites",
+            value = if (playlists.isEmpty()) "EMPTY" else "DELETE",
+            isFocused = focusedIndex == playlists.size + 2,
             onClick = onDelete
         )
 
@@ -2486,33 +2683,6 @@ private fun IptvSettings(
             }
         }
 
-        // ── Stalker Portal ──
-        Spacer(modifier = Modifier.height(24.dp))
-        Text(
-            text = "Stalker Portal (MAC)",
-            style = ArflixTypography.caption.copy(fontSize = 11.sp, letterSpacing = 0.8.sp),
-            color = TextSecondary.copy(alpha = 0.5f),
-            modifier = Modifier.padding(start = 4.dp, bottom = 12.dp)
-        )
-
-        SettingsRow(
-            icon = Icons.Default.LiveTv,
-            title = "Stalker Portal",
-            subtitle = if (stalkerUrl.isBlank()) "Not configured" else stalkerUrl.take(40),
-            value = if (stalkerUrl.isBlank()) "ADD" else "EDIT",
-            isFocused = focusedIndex == 3,
-            onClick = onConfigureStalker
-        )
-
-        if (stalkerMac.isNotBlank()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "MAC: $stalkerMac",
-                style = ArflixTypography.caption.copy(fontSize = 10.sp),
-                color = TextSecondary.copy(alpha = 0.5f),
-                modifier = Modifier.padding(start = 4.dp)
-            )
-        }
     }
 }
 
@@ -3077,17 +3247,6 @@ private fun AccountsSettings(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Switch Profile
-        SettingsActionRow(
-            title = "Switch Profile",
-            description = "Change to a different user profile",
-            actionLabel = "SWITCH",
-            isFocused = focusedIndex == 2,
-            onClick = onSwitchProfile
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
         SettingsActionRow(
             title = "App Updates",
             description = when {
@@ -3105,7 +3264,7 @@ private fun AccountsSettings(
                 isAppUpdateAvailable -> "UPDATE"
                 else -> "CHECK"
             },
-            isFocused = focusedIndex == 3,
+            isFocused = focusedIndex == 2,
             onClick = {
                 if (downloadedApkPath != null) onInstallUpdate() else onCheckUpdates()
             }
@@ -3500,8 +3659,10 @@ private fun InputModalLegacy(
                                     when {
                                         focusedIndex == fields.size -> {
                                             val clipboardText = clipboardManager.getText()?.text
-                                            if (clipboardText != null && fields.isNotEmpty()) {
-                                                fields[0].onValueChange(clipboardText)
+                                            // Paste into URL field (index 1) when available
+                                            val targetIndex = if (fields.size > 1) 1 else 0
+                                            if (clipboardText != null && fields.size > targetIndex) {
+                                                fields[targetIndex].onValueChange(clipboardText)
                                             }
                                             true
                                         }
@@ -3695,7 +3856,11 @@ private fun InputModal(
 ) {
     var focusedIndex by remember(title, fields.size) { mutableIntStateOf(0) }
     val totalItems = fields.size + 3 // inputs + paste + cancel + confirm
-    val formMaxHeight = if (fields.size >= 4) 360.dp else 290.dp
+    val formMaxHeight = when {
+        fields.size >= 5 -> 280.dp
+        fields.size >= 4 -> 260.dp
+        else -> 290.dp
+    }
 
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
@@ -3734,6 +3899,20 @@ private fun InputModal(
         modalFocusRequester.requestFocus()
     }
 
+    // Auto-scroll the form so the focused field stays in view when D-pad navigates.
+    // Each field is ~86dp tall (label 22dp + spacer 6dp + edittext 48dp + spacing 12dp).
+    // Scroll proportionally so the active field sits roughly in the middle of the viewport.
+    LaunchedEffect(focusedIndex) {
+        if (focusedIndex in 0 until fields.size) {
+            val approxFieldHeightPx = 260 // rough pixels per field at typical density
+            val targetScroll = (focusedIndex * approxFieldHeightPx).coerceAtLeast(0)
+            runCatching { formScrollState.animateScrollTo(targetScroll) }
+        } else if (focusedIndex >= fields.size) {
+            // Focused on paste/cancel/confirm — scroll form to end so it's not blocking
+            runCatching { formScrollState.animateScrollTo(formScrollState.maxValue) }
+        }
+    }
+
     androidx.compose.ui.window.Dialog(
         onDismissRequest = {
             hideKeyboardAll()
@@ -3757,6 +3936,7 @@ private fun InputModal(
                         if (LocalDeviceType.current.isTouchDevice()) Modifier.fillMaxWidth(0.92f).widthIn(max = 600.dp)
                         else Modifier.width(560.dp)
                     )
+                    .heightIn(max = 560.dp)
                     .background(BackgroundElevated, RoundedCornerShape(14.dp))
                     .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
                     .padding(horizontal = if (LocalDeviceType.current.isTouchDevice()) 16.dp else 20.dp, vertical = 18.dp)
@@ -3804,11 +3984,14 @@ private fun InputModal(
                                         }
                                         focusedIndex == fields.size -> {
                                             val clipboardText = clipboardManager.getText()?.text
-                                            val target = fields.firstOrNull()
+                                            // Paste into the URL field (index 1) when available,
+                                            // otherwise fall back to the first field.
+                                            val targetIndex = if (fields.size > 1) 1 else 0
+                                            val target = fields.getOrNull(targetIndex)
                                             if (clipboardText != null && target != null) {
                                                 target.onValueChange(clipboardText)
                                                 // Also update the EditText directly to keep in sync
-                                                editTextRefs.getOrNull(0)?.let { edit ->
+                                                editTextRefs.getOrNull(targetIndex)?.let { edit ->
                                                     edit.setText(clipboardText)
                                                     edit.clearFocus()
                                                 }
@@ -3937,6 +4120,14 @@ private fun InputModal(
                                                 field.onValueChange(editable?.toString() ?: "")
                                             }
 
+                                            // Sync Compose focusedIndex when this EditText gains native focus
+                                            // (prevents Bug 25: clicking one field opens another)
+                                            setOnFocusChangeListener { _, hasFocus ->
+                                                if (hasFocus && focusedIndex != index) {
+                                                    focusedIndex = index
+                                                }
+                                            }
+
                                             // Forward D-pad events to Compose navigation instead of letting EditText consume them
                                             setOnKeyListener { v, keyCode, event ->
                                                 if (event.action == android.view.KeyEvent.ACTION_DOWN) {
@@ -4018,9 +4209,15 @@ private fun InputModal(
                         )
                         .clickable {
                             val clipboardText = clipboardManager.getText()?.text
-                            val target = fields.firstOrNull()
+                            // Paste into the URL field (index 1) when available,
+                            // otherwise fall back to the first field.
+                            val targetIndex = if (fields.size > 1) 1 else 0
+                            val target = fields.getOrNull(targetIndex)
                             if (clipboardText != null && target != null) {
                                 target.onValueChange(clipboardText)
+                                editTextRefs.getOrNull(targetIndex)?.let { edit ->
+                                    edit.setText(clipboardText)
+                                }
                             }
                         }
                         .padding(vertical = 11.dp, horizontal = 14.dp),

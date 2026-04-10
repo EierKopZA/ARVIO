@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -39,7 +40,11 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import android.content.res.Configuration
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.foundation.lazy.grid.TvGridCells
 import androidx.tv.foundation.lazy.grid.TvLazyVerticalGrid
@@ -88,7 +93,10 @@ fun WatchlistScreen(
     val usePosterCards = com.arflix.tv.ui.components.rememberCardLayoutMode() == com.arflix.tv.ui.components.CardLayoutMode.POSTER
     val configuration = LocalConfiguration.current
     val isMobile = LocalDeviceType.current.isTouchDevice()
-    val gridColumns = if (isMobile) 2 else if (usePosterCards) {
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val gridColumns = if (isMobile) {
+        if (isLandscape) { if (usePosterCards) 3 else 2 } else 2
+    } else if (usePosterCards) {
         when {
             configuration.screenWidthDp >= 2200 -> 8
             configuration.screenWidthDp >= 1600 -> 7
@@ -129,6 +137,20 @@ fun WatchlistScreen(
             gridState.scrollToItem(safe)
         } else {
             gridState.animateScrollToItem(safe)
+        }
+    }
+
+    // Refresh watchlist when screen resumes (e.g. after removing from detail screen)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refresh()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 
@@ -267,7 +289,7 @@ fun WatchlistScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = AppTopBarContentTopInset)
+                .padding(top = if (isMobile) 16.dp else AppTopBarContentTopInset)
                 .padding(start = 24.dp, top = 24.dp, end = 48.dp)
         ) {
                 // Header with pink bookmark icon
@@ -299,8 +321,10 @@ fun WatchlistScreen(
                         }
                     }
                     uiState.items.isEmpty() -> {
+                        // fillMaxSize ensures proper centering within the available space
+                        // for both mobile and TV layouts (Bug 12 & 24).
                         Box(
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
                         ) {
                             Column(
@@ -367,7 +391,8 @@ fun WatchlistScreen(
                                     isLandscape = !usePosterCards,
                                     logoImageUrl = logoUrl,
                                     onFocused = { focusedGridIndex = index },
-                                    onClick = { onNavigateToDetails(item.mediaType, item.id) }
+                                    onClick = { onNavigateToDetails(item.mediaType, item.id) },
+                                    onLongClick = { viewModel.removeFromWatchlist(item) }
                                 )
                             }
                         }

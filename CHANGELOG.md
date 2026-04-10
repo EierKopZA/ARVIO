@@ -7,6 +7,46 @@ All notable changes to this project are documented in this file.
 ### Added
 - (Nothing yet)
 
+## [1.9.8] - 2026-04-10
+
+### Added
+- Premium source picker overhaul shared between Details and Player, with richer source cards, improved metadata chips, better sorting, and clearer quality/release/audio/provider presentation.
+- Clock format setting in Settings (`12-hour` / `24-hour`) with app-wide top bar clock support.
+- Volume Boost setting using Android `LoudnessEnhancer`.
+- MAL score badge on anime details pages.
+- Mobile-visible back button on deep screens.
+- Post-episode "Up Next" prompt that respects auto-play-next.
+- Fire TV / Bluetooth media remote support (play/pause, stop, rewind/fast-forward, next/previous episode).
+- Multiple named IPTV playlist backend support (up to 3 lists) with enabled/disabled state.
+
+### Improved
+- Top navigation bar redesigned: centered nav items, settings gear on the right, avatar-only profile entry, cleaner visual hierarchy.
+- Home screen startup speed: categories cached to disk for near-instant relaunch, Continue Watching fetch decoupled from `loadHomeData` so it can complete independently.
+- Image loading and perceived loading speed improved via dedicated Coil client, larger disk/memory caches, DNS warm-up, better preload behavior, and empty-image-url guards.
+- Player controls, top bar focus, screen transitions, row emphasis, and card interactions feel smoother and more premium.
+- Tablet player controls are larger, better centered, and more readable on bright content.
+- Source picker labeling refined so torrent/cached/VOD are surfaced more accurately and without noisy HTTP/Direct badges.
+- Top 10 rows redesigned to use normal cards with gold rank badges instead of oversized background numerals.
+- TV page EPG now loads up front when stale/missing instead of trickling in after page open.
+
+### Fixed
+- In-app updater downloads but never installs (missing PackageInstaller broadcast receiver / confirmation flow).
+- Profile dialog focus flow and input handling.
+- Deleted catalogs flashing back on home load.
+- Player crash when switching audio language.
+- Details page now focuses the first unwatched episode by default.
+- Custom subtitle addons like Wizdom/Ktuvit now install and resolve correctly.
+- IMAX badge added; Dolby Vision badge false positives fixed.
+- Cross-device cloud sync timing improved with ON_RESUME pull, watch-history realtime updates, token refresh, and dirty-push retry behavior.
+- Continue Watching / Trakt logic substantially reworked to reduce stale and incorrect items, better handle new episode premieres, and improve refresh timing.
+- Home focus/row stability improved across startup and catalog updates.
+- Trailer button / trailer behavior and details-page asset prefetching improved to reduce clearlogo and episode-load lag.
+- Mobile watchlist/details/search/settings responsiveness improved, including reduced first-press dead time and faster activation.
+- Poster rows no longer use internal bottom gradients.
+- Top 10 badges now stay visible when cards are focused.
+- Normal login flow now performs full cloud restore (not just addons), so catalogs, IPTV favorites, and other cloud-backed state restore after login.
+- `main` pushed to GitLab and GitLab repo prepared as the active remote while GitHub remains suspended.
+
 ## [1.9.74] - 2026-04-03
 
 ### Fixed

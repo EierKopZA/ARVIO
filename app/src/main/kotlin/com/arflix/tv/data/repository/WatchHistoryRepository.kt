@@ -49,6 +49,13 @@ class WatchHistoryRepository @Inject constructor(
     private val profileManager: ProfileManager,
     private val realtimeSyncManagerProvider: Provider<RealtimeSyncManager>
 ) {
+    // In-memory cache of the last successful CW fetch. When the Supabase REST call
+    // fails (network timeout, 401, etc.), we return this cached list instead of an
+    // empty list — so Continue Watching never silently disappears from the UI.
+    // Updated on every successful getContinueWatching() call.
+    @Volatile
+    private var cachedContinueWatching: List<WatchHistoryEntry> = emptyList()
+
     private fun profileHistorySource(base: String): String {
         // Use stable profile ID so rename/case changes do not split history.
         // Profile IDs are synced via cloud profile sync.
@@ -154,11 +161,15 @@ class WatchHistoryRepository @Inject constructor(
         }
     }
 
+    @Volatile
+    private var cachedWatchHistory: List<WatchHistoryEntry> = emptyList()
+
     /**
-     * Get watch history for current user
+     * Get watch history for current user.
+     * Returns cached data on failure instead of empty list.
      */
     suspend fun getWatchHistory(): List<WatchHistoryEntry> {
-        val userId = authRepositoryProvider.get().getCurrentUserId() ?: return emptyList()
+        val userId = authRepositoryProvider.get().getCurrentUserId() ?: return cachedWatchHistory
 
         return try {
             val records = executeSupabaseCall("get watch history") { auth ->
@@ -170,18 +181,27 @@ class WatchHistoryRepository @Inject constructor(
                     limit = 500
                 )
             }.map { it.toEntry() }
-            filterByProfile(records)
+            val result = filterByProfile(records)
+            cachedWatchHistory = result
+            result
         } catch (_: Exception) {
-            emptyList()
+            cachedWatchHistory
         }
     }
 
     /**
-     * Get continue watching items (progress < 90%)
+     * Get continue watching items (progress < 90%).
+     *
+     * On success: updates the in-memory cache and returns fresh data.
+     * On failure: returns the last successfully fetched data from cache instead
+     * of an empty list — so Continue Watching never silently disappears from the
+     * Home screen due to a transient network error or expired token. The cached
+     * data may be a few seconds stale, but stale data is infinitely better than
+     * an empty row that makes the user think their watch history is lost.
      */
     suspend fun getContinueWatching(): List<WatchHistoryEntry> {
         val userId = authRepositoryProvider.get().getCurrentUserId()
-        if (userId == null) return emptyList()
+        if (userId == null) return cachedContinueWatching
 
         return try {
             val records = executeSupabaseCall("get continue watching history") { auth ->
@@ -194,10 +214,14 @@ class WatchHistoryRepository @Inject constructor(
                 )
             }
             val allEntries = records.map { it.toEntry() }
-            filterByProfile(allEntries)
+            val result = filterByProfile(allEntries)
                 .filter { isEntryInProgress(it) }
+            // Cache the successful result for offline/error fallback
+            cachedContinueWatching = result
+            result
         } catch (_: Exception) {
-            emptyList()
+            // Return cached data instead of empty list on failure
+            cachedContinueWatching
         }
     }
 

@@ -79,8 +79,17 @@ import java.security.MessageDigest
 data class IptvConfig(
     val m3uUrl: String = "",
     val epgUrl: String = "",
+    val playlists: List<IptvPlaylistEntry> = emptyList(),
     val stalkerPortalUrl: String = "",
     val stalkerMacAddress: String = ""
+)
+
+data class IptvPlaylistEntry(
+    val id: String,
+    val name: String,
+    val m3uUrl: String,
+    val epgUrl: String = "",
+    val enabled: Boolean = true
 )
 
 data class IptvLoadProgress(
@@ -92,7 +101,10 @@ data class IptvCloudProfileState(
     val m3uUrl: String = "",
     val epgUrl: String = "",
     val favoriteGroups: List<String> = emptyList(),
-    val favoriteChannels: List<String> = emptyList()
+    val favoriteChannels: List<String> = emptyList(),
+    val hiddenGroups: List<String> = emptyList(),
+    val groupOrder: List<String> = emptyList(),
+    val playlists: List<IptvPlaylistEntry> = emptyList()
 )
 
 @Singleton
@@ -189,9 +201,12 @@ class IptvRepository @Inject constructor(
 
     fun observeConfig(): Flow<IptvConfig> =
         profileManager.activeProfileId.combine(context.settingsDataStore.data) { _, prefs ->
+            val playlists = decodePlaylists(prefs[playlistsKey()].orEmpty())
+            val primary = playlists.firstOrNull()
             IptvConfig(
-                m3uUrl = decryptConfigValue(prefs[m3uUrlKey()].orEmpty()),
-                epgUrl = decryptConfigValue(prefs[epgUrlKey()].orEmpty()),
+                m3uUrl = primary?.m3uUrl ?: decryptConfigValue(prefs[m3uUrlKey()].orEmpty()),
+                epgUrl = primary?.epgUrl ?: decryptConfigValue(prefs[epgUrlKey()].orEmpty()),
+                playlists = playlists,
                 stalkerPortalUrl = decryptConfigValue(prefs[stalkerPortalUrlKey()].orEmpty()),
                 stalkerMacAddress = prefs[stalkerMacAddressKey()].orEmpty()
             )
@@ -220,9 +235,33 @@ class IptvRepository @Inject constructor(
     suspend fun saveConfig(m3uUrl: String, epgUrl: String) {
         val normalizedM3u = normalizeIptvInput(m3uUrl)
         val normalizedEpg = normalizeEpgInput(epgUrl)
+        val primary = if (normalizedM3u.isNotBlank()) listOf(
+            IptvPlaylistEntry(id = "list_1", name = "List 1", m3uUrl = normalizedM3u, epgUrl = normalizedEpg)
+        ) else emptyList()
         context.settingsDataStore.edit { prefs ->
             prefs[m3uUrlKey()] = encryptConfigValue(normalizedM3u)
             prefs[epgUrlKey()] = encryptConfigValue(normalizedEpg)
+            prefs[playlistsKey()] = gson.toJson(primary)
+        }
+        invalidateCache()
+    }
+
+    suspend fun savePlaylists(playlists: List<IptvPlaylistEntry>) {
+        val normalized = playlists.mapIndexed { index, item ->
+            IptvPlaylistEntry(
+                id = item.id.ifBlank { "list_${index + 1}" },
+                name = item.name.ifBlank { "List ${index + 1}" },
+                m3uUrl = normalizeIptvInput(item.m3uUrl),
+                epgUrl = normalizeEpgInput(item.epgUrl),
+                enabled = item.enabled
+            )
+        }.filter { it.m3uUrl.isNotBlank() }.take(3)
+
+        context.settingsDataStore.edit { prefs ->
+            prefs[playlistsKey()] = gson.toJson(normalized)
+            val primary = normalized.firstOrNull()
+            prefs[m3uUrlKey()] = encryptConfigValue(primary?.m3uUrl.orEmpty())
+            prefs[epgUrlKey()] = encryptConfigValue(primary?.epgUrl.orEmpty())
         }
         invalidateCache()
     }
@@ -468,6 +507,7 @@ class IptvRepository @Inject constructor(
         context.settingsDataStore.edit { prefs ->
             prefs.remove(m3uUrlKey())
             prefs.remove(epgUrlKey())
+            prefs.remove(playlistsKey())
             prefs.remove(favoriteGroupsKey())
             prefs.remove(favoriteChannelsKey())
         }
@@ -492,6 +532,9 @@ class IptvRepository @Inject constructor(
             } else {
                 prefs[epgUrlKey()] = encryptConfigValue(epgUrl)
             }
+            prefs[playlistsKey()] = gson.toJson(
+                if (m3uUrl.isNotBlank()) listOf(IptvPlaylistEntry("list_1", "List 1", m3uUrl, epgUrl)) else emptyList()
+            )
             val cleanedFavorites = favoriteGroups
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
@@ -584,7 +627,8 @@ class IptvRepository @Inject constructor(
     suspend fun loadSnapshot(
         forcePlaylistReload: Boolean = false,
         forceEpgReload: Boolean = false,
-        onProgress: (IptvLoadProgress) -> Unit = {}
+        onProgress: (IptvLoadProgress) -> Unit = {},
+        onChannelsReady: suspend (List<IptvChannel>) -> Unit = {}
     ): IptvSnapshot {
         return withContext(Dispatchers.IO) {
             loadMutex.withLock {
@@ -595,7 +639,10 @@ class IptvRepository @Inject constructor(
             val profileId = profileManager.getProfileIdSync()
             ensureCacheOwnership(profileId, config)
             cleanupIptvCacheDirectory()
-            if (config.m3uUrl.isBlank() && config.stalkerPortalUrl.isBlank()) {
+            val activePlaylists = config.playlists.filter { it.enabled }.ifEmpty {
+                if (config.m3uUrl.isNotBlank()) listOf(IptvPlaylistEntry("list_1", "List 1", config.m3uUrl, config.epgUrl, enabled = true)) else emptyList()
+            }
+            if (activePlaylists.isEmpty() && config.stalkerPortalUrl.isBlank()) {
                 return@withContext IptvSnapshot(
                     channels = emptyList(),
                     grouped = emptyMap(),
@@ -660,11 +707,26 @@ class IptvRepository @Inject constructor(
                 )
                 cachedChannels
             } else {
-                fetchAndParseM3uWithRetries(config.m3uUrl, onProgress).also {
+                coroutineScope {
+                    activePlaylists.mapIndexed { index, playlist ->
+                        async {
+                            fetchAndParseM3uWithRetries(playlist.m3uUrl, onProgress).map { channel ->
+                                channel.copy(
+                                    id = "${playlist.id}:${channel.id}",
+                                    group = if (playlist.name.isNotBlank()) "${playlist.name} • ${channel.group}" else channel.group
+                                )
+                            }
+                        }
+                    }.awaitAll().flatten()
+                }.also {
                     cachedChannels = it
                     cachedPlaylistAt = System.currentTimeMillis()
                 }
             }
+
+            // Publish channels immediately so the UI can show them while EPG loads.
+            // Uses cached nowNext if available to paint initial EPG state.
+            runCatching { onChannelsReady(channels) }
 
             val epgCandidates = resolveEpgCandidates(config)
             var epgUpdated = false
@@ -1061,6 +1123,7 @@ class IptvRepository @Inject constructor(
     private fun m3uUrlKeyFor(profileId: String): Preferences.Key<String> =
         profileManager.profileStringKeyFor(profileId, "iptv_m3u_url")
     private fun epgUrlKey(): Preferences.Key<String> = profileManager.profileStringKey("iptv_epg_url")
+    private fun playlistsKey(): Preferences.Key<String> = profileManager.profileStringKey("iptv_playlists_json")
     private fun stalkerPortalUrlKey(): Preferences.Key<String> = profileManager.profileStringKey("iptv_stalker_portal_url")
     private fun stalkerMacAddressKey(): Preferences.Key<String> = profileManager.profileStringKey("iptv_stalker_mac_address")
     private fun epgUrlKeyFor(profileId: String): Preferences.Key<String> =
@@ -1085,8 +1148,24 @@ class IptvRepository @Inject constructor(
         }.getOrDefault(emptyList())
     }
 
+    private fun decodePlaylists(raw: String): List<IptvPlaylistEntry> {
+        if (raw.isBlank()) return emptyList()
+        return runCatching {
+            val type = object : TypeToken<List<IptvPlaylistEntry>>() {}.type
+            gson.fromJson<List<IptvPlaylistEntry>>(raw, type)
+                ?.filter { it.m3uUrl.isNotBlank() }
+                ?: emptyList()
+        }.getOrDefault(emptyList())
+    }
+
     private fun hiddenGroupsKey(): Preferences.Key<String> = profileManager.profileStringKey("iptv_hidden_groups")
+    private fun hiddenGroupsKeyFor(profileId: String): Preferences.Key<String> =
+        profileManager.profileStringKeyFor(profileId, "iptv_hidden_groups")
     private fun groupOrderKey(): Preferences.Key<String> = profileManager.profileStringKey("iptv_group_order")
+    private fun groupOrderKeyFor(profileId: String): Preferences.Key<String> =
+        profileManager.profileStringKeyFor(profileId, "iptv_group_order")
+    private fun playlistsKeyFor(profileId: String): Preferences.Key<String> =
+        profileManager.profileStringKeyFor(profileId, "iptv_playlists_json")
 
     private fun decodeHiddenGroups(prefs: Preferences): List<String> {
         val raw = prefs[hiddenGroupsKey()].orEmpty()
@@ -1146,11 +1225,32 @@ class IptvRepository @Inject constructor(
     suspend fun exportCloudConfigForProfile(profileId: String): IptvCloudProfileState {
         val safeProfileId = profileId.trim().ifBlank { "default" }
         val prefs = context.settingsDataStore.data.first()
+        val hiddenRaw = prefs[hiddenGroupsKeyFor(safeProfileId)].orEmpty()
+        val orderRaw = prefs[groupOrderKeyFor(safeProfileId)].orEmpty()
+        val playlistsRaw = prefs[playlistsKeyFor(safeProfileId)].orEmpty()
         return IptvCloudProfileState(
             m3uUrl = decryptConfigValue(prefs[m3uUrlKeyFor(safeProfileId)].orEmpty()),
             epgUrl = decryptConfigValue(prefs[epgUrlKeyFor(safeProfileId)].orEmpty()),
             favoriteGroups = decodeFavoriteGroups(prefs[favoriteGroupsKeyFor(safeProfileId)].orEmpty()),
-            favoriteChannels = decodeFavoriteChannels(prefs[favoriteChannelsKeyFor(safeProfileId)].orEmpty())
+            favoriteChannels = decodeFavoriteChannels(prefs[favoriteChannelsKeyFor(safeProfileId)].orEmpty()),
+            hiddenGroups = if (hiddenRaw.isNotBlank()) {
+                runCatching {
+                    val type = object : TypeToken<List<String>>() {}.type
+                    gson.fromJson<List<String>>(hiddenRaw, type) ?: emptyList()
+                }.getOrDefault(emptyList())
+            } else emptyList(),
+            groupOrder = if (orderRaw.isNotBlank()) {
+                runCatching {
+                    val type = object : TypeToken<List<String>>() {}.type
+                    gson.fromJson<List<String>>(orderRaw, type) ?: emptyList()
+                }.getOrDefault(emptyList())
+            } else emptyList(),
+            playlists = if (playlistsRaw.isNotBlank()) {
+                runCatching {
+                    val type = object : TypeToken<List<IptvPlaylistEntry>>() {}.type
+                    gson.fromJson<List<IptvPlaylistEntry>>(playlistsRaw, type) ?: emptyList()
+                }.getOrDefault(emptyList())
+            } else emptyList()
         )
     }
 
@@ -1163,6 +1263,15 @@ class IptvRepository @Inject constructor(
             prefs[epgUrlKeyFor(safeProfileId)] = encryptConfigValue(normalizedEpg)
             prefs[favoriteGroupsKeyFor(safeProfileId)] = gson.toJson(state.favoriteGroups.distinct())
             prefs[favoriteChannelsKeyFor(safeProfileId)] = gson.toJson(state.favoriteChannels.distinct())
+            if (state.hiddenGroups.isNotEmpty()) {
+                prefs[hiddenGroupsKeyFor(safeProfileId)] = gson.toJson(state.hiddenGroups.distinct())
+            }
+            if (state.groupOrder.isNotEmpty()) {
+                prefs[groupOrderKeyFor(safeProfileId)] = gson.toJson(state.groupOrder.distinct())
+            }
+            if (state.playlists.isNotEmpty()) {
+                prefs[playlistsKeyFor(safeProfileId)] = gson.toJson(state.playlists)
+            }
         }
         if (profileManager.getProfileIdSync() == safeProfileId) {
             invalidateCache()
@@ -2883,27 +2992,25 @@ class IptvRepository @Inject constructor(
     }
 
     private fun resolveEpgCandidates(config: IptvConfig): List<String> {
-        val manual = config.epgUrl.takeIf { it.isNotBlank() }
-        val creds = resolveXtreamCredentials(config.epgUrl).let { fromEpg ->
-            fromEpg ?: resolveXtreamCredentials(config.m3uUrl)
+        val allLists = config.playlists.filter { it.enabled }.ifEmpty {
+            if (config.m3uUrl.isNotBlank()) listOf(IptvPlaylistEntry("list_1", "List 1", config.m3uUrl, config.epgUrl, enabled = true)) else emptyList()
         }
-        val derived = if (creds != null) {
-            buildList {
-            preferredDerivedEpgUrl?.takeIf { it.startsWith(creds.baseUrl) }?.let { add(it) }
-            add("${creds.baseUrl}/xmltv.php?username=${creds.username}&password=${creds.password}")
-            add("${creds.baseUrl}/get.php?username=${creds.username}&password=${creds.password}&type=xmltv")
-            add("${creds.baseUrl}/get.php?username=${creds.username}&password=${creds.password}&type=xml")
-            add("${creds.baseUrl}/xmltv.php")
-            add("${creds.baseUrl}/get.php?username=${creds.username}&password=${creds.password}")
-        }
-        } else {
-            emptyList()
-        }
-
         return buildList {
-            manual?.let { add(it) }
+            allLists.forEach { list ->
+                list.epgUrl.takeIf { it.isNotBlank() }?.let { add(it) }
+                val creds = resolveXtreamCredentials(list.epgUrl).let { fromEpg ->
+                    fromEpg ?: resolveXtreamCredentials(list.m3uUrl)
+                }
+                if (creds != null) {
+                    preferredDerivedEpgUrl?.takeIf { it.startsWith(creds.baseUrl) }?.let { add(it) }
+                    add("${creds.baseUrl}/xmltv.php?username=${creds.username}&password=${creds.password}")
+                    add("${creds.baseUrl}/get.php?username=${creds.username}&password=${creds.password}&type=xmltv")
+                    add("${creds.baseUrl}/get.php?username=${creds.username}&password=${creds.password}&type=xml")
+                    add("${creds.baseUrl}/xmltv.php")
+                    add("${creds.baseUrl}/get.php?username=${creds.username}&password=${creds.password}")
+                }
+            }
             discoveredM3uEpgUrl?.let { add(it) }
-            addAll(derived)
         }.distinct()
     }
 

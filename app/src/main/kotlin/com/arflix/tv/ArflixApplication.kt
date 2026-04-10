@@ -62,6 +62,16 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
         // Initialize OkHttp disk cache before any network calls
         OkHttpProvider.init(this)
 
+        // Warm DNS for TMDB image CDN so the very first image request on the home
+        // screen doesn't block on DNS-over-HTTPS bootstrap + resolution. Without
+        // this, the first batch of card images can take 1-3s extra on cold start
+        // while DoH resolves image.tmdb.org. The SettingsViewModel already does
+        // this when the DNS provider changes; doing it at app start ensures the
+        // first home load is fast regardless of provider.
+        appScope.launch(Dispatchers.IO) {
+            runCatching { OkHttpProvider.dns.lookup("image.tmdb.org") }
+        }
+
         // Initialize crash reporting (gracefully handles missing Firebase config)
         CrashlyticsProvider.initialize()
         // Initialize active profile asynchronously to avoid blocking cold start.
@@ -95,22 +105,37 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
 
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
-            .okHttpClient(OkHttpProvider.client)
+            // Use the dedicated Coil HTTP client instead of the main API client.
+            // Avoids logging interceptor overhead and connection pool contention.
+            .okHttpClient(OkHttpProvider.coilClient)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.15)  // Reduced from 25% to 15% to prevent OOM during playback
+                    // Bumped from 15% to 20% to reduce cache thrashing on the home
+                    // screen where 10+ cards are visible simultaneously.
+                    .maxSizePercent(0.20)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(48L * 1024L * 1024L)  // Strict cap to prevent cache bloat on TV storage.
+                    // Bumped from 48 MB to 128 MB to hold more original-quality
+                    // backdrops across sessions. Original TMDB backdrops are 1-5 MB
+                    // each; 128 MB caches 25-128 unique backdrops, covering several
+                    // home screen visits worth of content. This means repeat visits
+                    // load entirely from disk with no network, keeping original
+                    // quality AND instant load speed.
+                    .maxSizeBytes(128L * 1024L * 1024L)
                     .build()
             }
-            .crossfade(false)
+            .crossfade(200)
             .respectCacheHeaders(false)
-            .allowRgb565(true)  // Performance: Use RGB_565 for faster decoding on TV
-            .bitmapConfig(Bitmap.Config.RGB_565)  // Performance: Smaller bitmaps, faster decode
+            .allowRgb565(true)
+            .bitmapConfig(Bitmap.Config.RGB_565)
+            // No global placeholder — card composables use their own surface
+            // background color as the visual placeholder. A global placeholder
+            // causes a dark-rectangle flash behind transparent clearlogo PNGs
+            // on the home hero. Error = transparent so failed loads are invisible
+            // (the card surface background is the fallback visual).
             .error(android.R.color.transparent)
             .build()
     }

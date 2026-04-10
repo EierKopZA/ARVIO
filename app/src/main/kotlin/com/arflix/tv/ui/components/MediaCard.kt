@@ -61,8 +61,8 @@ private val sharedCardOverlayBrush = Brush.verticalGradient(
     colors = listOf(
         Color.Transparent,
         Color.Transparent,
-        Color(0x8C_0D0D14),  // ~55% alpha
-        Color(0xD9_0D0D14),  // ~85% alpha
+        Color(0x66_0D0D14),  // ~40% alpha
+        Color(0xB3_0D0D14),  // ~70% alpha
     )
 )
 
@@ -100,10 +100,14 @@ fun MediaCard(
     val aspectRatio = if (isLandscape) 16f / 9f else 2f / 3f
     // Plex-like behavior: landscape cards should prefer wide artwork/backdrops.
     // Poster art is portrait and looks cropped in 16:9 cards, so only use it as fallback.
-    val imageUrl = if (isLandscape) {
-        item.backdrop ?: item.image
+    // Guard empty/blank URLs — TMDB items with no posterPath AND no backdropPath
+    // produce image="" in toMediaItem(). Passing "" to Coil throws
+    // "Unable to create a fetcher that supports: " and the card stays dark forever.
+    // With this guard, cards with no image simply show the surface background color.
+    val rawImageUrl = if (isLandscape) {
+        (item.backdrop ?: item.image).takeIf { it.isNotBlank() }
     } else {
-        item.image
+        item.image.takeIf { it.isNotBlank() }
     }
     val shape = rememberArvioCardShape(ArvioSkin.radius.md)
 
@@ -112,17 +116,17 @@ fun MediaCard(
 
     val context = LocalContext.current
     val density = LocalDensity.current
-    val overlayBrush = sharedCardOverlayBrush
+    val overlayBrush: Brush? = null  // Gradient removed per user feedback
     // Performance: Removed context/density from keys - they're stable CompositionLocals
-    val imageRequest = remember(imageUrl, width, aspectRatio) {
+    val imageRequest = remember(rawImageUrl, width, aspectRatio) {
+        if (rawImageUrl == null) return@remember null
         val widthPx = with(density) { width.roundToPx() }
         val heightPx = (widthPx / aspectRatio).toInt().coerceAtLeast(1)
         ImageRequest.Builder(context)
-            .data(imageUrl)
+            .data(rawImageUrl)
             .size(widthPx, heightPx)
             .precision(Precision.INEXACT)
             .allowHardware(true)
-            .crossfade(false)  // No crossfade: avoids 2x overdraw per card during scroll
             .build()
     }
     // Performance: Removed context/density from keys
@@ -137,7 +141,7 @@ fun MediaCard(
                 .size(logoWidthPx, logoHeightPx)
                 .precision(Precision.INEXACT)
                 .allowHardware(true)
-                .crossfade(false)
+                // Uses global crossfade(200) from ImageLoader
                 .build()
         }
     }
@@ -155,9 +159,9 @@ fun MediaCard(
             backgroundColor = ArvioSkin.colors.surface,
             outlineColor = ArvioSkin.colors.focusOutline,
             outlineWidth = jumpBorderWidth,
-            focusedScale = 1.0f,
-            pressedScale = 1f,
-            focusedTransformOriginX = 0f,
+            focusedScale = 1.05f,
+            pressedScale = 0.97f,
+            focusedTransformOriginX = 0.5f,
             enableSystemFocus = enableSystemFocus,
             isFocusedOverride = isFocusedOverride,
             onClick = onClick,
@@ -168,21 +172,26 @@ fun MediaCard(
             },
         ) { _ ->
             Box(modifier = Modifier.fillMaxSize()) {
-                // Performance: Removed SkeletonBox with infinite shimmer animation
-                // The surface background color provides a placeholder while image loads
-                AsyncImage(
-                    model = imageRequest,
-                    contentDescription = item.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(ArvioSkin.colors.surface),
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(overlayBrush)
-                )
+                // Only render AsyncImage when we have a valid image URL.
+                // When imageRequest is null (no poster/backdrop from TMDB), the
+                // card's surface background color serves as the placeholder.
+                if (imageRequest != null) {
+                    AsyncImage(
+                        model = imageRequest,
+                        contentDescription = item.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(ArvioSkin.colors.surface),
+                    )
+                }
+                if (overlayBrush != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(overlayBrush)
+                    )
+                }
 
                 // Official logo/art overlay in bottom-left corner of landscape cards.
                 if (isLandscape && logoRequest != null) {
@@ -360,16 +369,18 @@ fun PosterCard(
     val context = LocalContext.current
     val density = LocalDensity.current
     val aspectRatio = 2f / 3f
+    val posterUrl = item.image.takeIf { it.isNotBlank() }
     // Performance: Removed context/density from keys
-    val imageRequest = remember(item.image, width) {
+    val imageRequest = remember(posterUrl, width) {
+        if (posterUrl == null) return@remember null
         val widthPx = with(density) { width.roundToPx() }
         val heightPx = (widthPx / aspectRatio).toInt().coerceAtLeast(1)
         ImageRequest.Builder(context)
-            .data(item.image)
+            .data(posterUrl)
             .size(widthPx, heightPx)
             .precision(Precision.INEXACT)
             .allowHardware(true)
-            .crossfade(false)  // No crossfade: avoids 2x overdraw per card during scroll
+            // Uses global crossfade(200) from ImageLoader
             .build()
     }
 
@@ -390,15 +401,16 @@ fun PosterCard(
                 if (it) onFocused()
             },
         ) { _ ->
-            // Performance: Removed SkeletonBox with infinite shimmer animation
-            AsyncImage(
-                model = imageRequest,
-                contentDescription = item.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(ArvioSkin.colors.surface),
-            )
+            if (imageRequest != null) {
+                AsyncImage(
+                    model = imageRequest,
+                    contentDescription = item.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(ArvioSkin.colors.surface),
+                )
+            }
         }
 
         // Only show title and year when focused

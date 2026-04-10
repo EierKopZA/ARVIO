@@ -1863,8 +1863,8 @@ fun PlayerScreen(
         // Netflix-style Controls Overlay
         AnimatedVisibility(
             visible = showControls && !showSubtitleMenu && !showSourceMenu,
-            enter = fadeIn(),
-            exit = fadeOut()
+            enter = fadeIn(androidx.compose.animation.core.tween(150)),
+            exit = fadeOut(androidx.compose.animation.core.tween(200))
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 // Top info
@@ -1965,7 +1965,9 @@ fun PlayerScreen(
                                 kotlinx.coroutines.delay(1000)
                             }
                         }
-                        Text(currentTime.value, style = ArflixTypography.body.copy(fontSize = 18.sp, fontWeight = FontWeight.Medium), color = TextSecondary, maxLines = 1)
+                        if (!isTouchDevice) {
+                            Text(currentTime.value, style = ArflixTypography.body.copy(fontSize = 18.sp, fontWeight = FontWeight.Medium), color = TextSecondary, maxLines = 1)
+                        }
                         if (endsAtTime.value.isNotBlank()) {
                             Text("Ends at ${endsAtTime.value}", style = ArflixTypography.caption.copy(fontSize = 12.sp), color = TextSecondary.copy(alpha = 0.7f), maxLines = 1, modifier = Modifier.padding(top = 2.dp))
                         }
@@ -2065,21 +2067,25 @@ fun PlayerScreen(
                             onFocusChanged = {},
                             onClick = { showSourceMenu = true; showControls = true },
                             onLeftKey = { subtitleButtonFocusRequester.requestFocus() },
-                            onRightKey = { rewindButtonFocusRequester.requestFocus() },
+                            onRightKey = { if (isTouchDevice) playButtonFocusRequester.requestFocus() else rewindButtonFocusRequester.requestFocus() },
                             onDownKey = { trackbarFocusRequester.requestFocus() })
 
-                        Spacer(modifier = Modifier.width(wideGap))
+                        if (!isTouchDevice) {
+                            Spacer(modifier = Modifier.width(wideGap))
 
-                        // Rewind 10s
-                        PlayerIconButton(icon = Icons.Default.Replay10, contentDescription = "Rewind 10s",
-                            focusRequester = rewindButtonFocusRequester, size = midBtn, iconSize = midIcon,
-                            onFocusChanged = {},
-                            onClick = { queueControlsSeek(-10_000L) },
-                            onLeftKey = { sourceButtonFocusRequester.requestFocus() },
-                            onRightKey = { playButtonFocusRequester.requestFocus() },
-                            onDownKey = { trackbarFocusRequester.requestFocus() })
+                            // Rewind 10s
+                            PlayerIconButton(icon = Icons.Default.Replay10, contentDescription = "Rewind 10s",
+                                focusRequester = rewindButtonFocusRequester, size = midBtn, iconSize = midIcon,
+                                onFocusChanged = {},
+                                onClick = { queueControlsSeek(-10_000L) },
+                                onLeftKey = { sourceButtonFocusRequester.requestFocus() },
+                                onRightKey = { playButtonFocusRequester.requestFocus() },
+                                onDownKey = { trackbarFocusRequester.requestFocus() })
 
-                        Spacer(modifier = Modifier.width(gap))
+                            Spacer(modifier = Modifier.width(gap))
+                        } else {
+                            Spacer(modifier = Modifier.width(wideGap))
+                        }
 
                         // Play/Pause - center, largest
                         PlayerIconButton(icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -2087,30 +2093,34 @@ fun PlayerScreen(
                             focusRequester = playButtonFocusRequester, size = bigBtn, iconSize = bigIcon,
                             onFocusChanged = { if (it) focusedButton = 0 },
                             onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
-                            onLeftKey = { rewindButtonFocusRequester.requestFocus() },
-                            onRightKey = { forwardButtonFocusRequester.requestFocus() },
+                            onLeftKey = { if (isTouchDevice) sourceButtonFocusRequester.requestFocus() else rewindButtonFocusRequester.requestFocus() },
+                            onRightKey = { if (isTouchDevice) aspectButtonFocusRequester.requestFocus() else forwardButtonFocusRequester.requestFocus() },
                             onDownKey = { trackbarFocusRequester.requestFocus() },
                             onUpKey = { val sv = uiState.activeSkipInterval != null && !uiState.skipIntervalDismissed; if (sv) skipIntroFocusRequester.requestFocus() })
 
-                        Spacer(modifier = Modifier.width(gap))
+                        if (!isTouchDevice) {
+                            Spacer(modifier = Modifier.width(gap))
 
-                        // Forward 10s - own focus requester
-                        PlayerIconButton(icon = Icons.Default.Forward10, contentDescription = "Forward 10s",
-                            focusRequester = forwardButtonFocusRequester, size = midBtn, iconSize = midIcon,
-                            onFocusChanged = {},
-                            onClick = { queueControlsSeek(10_000L) },
-                            onLeftKey = { playButtonFocusRequester.requestFocus() },
-                            onRightKey = { aspectButtonFocusRequester.requestFocus() },
-                            onDownKey = { trackbarFocusRequester.requestFocus() })
+                            // Forward 10s - own focus requester
+                            PlayerIconButton(icon = Icons.Default.Forward10, contentDescription = "Forward 10s",
+                                focusRequester = forwardButtonFocusRequester, size = midBtn, iconSize = midIcon,
+                                onFocusChanged = {},
+                                onClick = { queueControlsSeek(10_000L) },
+                                onLeftKey = { playButtonFocusRequester.requestFocus() },
+                                onRightKey = { aspectButtonFocusRequester.requestFocus() },
+                                onDownKey = { trackbarFocusRequester.requestFocus() })
 
-                        Spacer(modifier = Modifier.width(wideGap))
+                            Spacer(modifier = Modifier.width(wideGap))
+                        } else {
+                            Spacer(modifier = Modifier.width(wideGap))
+                        }
 
                         // Aspect Ratio
                         PlayerIconButton(icon = Icons.Default.AspectRatio, contentDescription = "Aspect: $aspectModeLabel",
                             focusRequester = aspectButtonFocusRequester, size = smallBtn, iconSize = smallIcon,
                             onFocusChanged = {},
                             onClick = cycleAspectRatio,
-                            onLeftKey = { forwardButtonFocusRequester.requestFocus() },
+                            onLeftKey = { if (isTouchDevice) playButtonFocusRequester.requestFocus() else forwardButtonFocusRequester.requestFocus() },
                             onRightKey = { if (mediaType == MediaType.TV) nextEpisodeButtonFocusRequester.requestFocus() else subtitleButtonFocusRequester.requestFocus() },
                             onDownKey = { trackbarFocusRequester.requestFocus() })
 
@@ -2215,8 +2225,8 @@ fun PlayerScreen(
         // Subtitle/Audio menu
         AnimatedVisibility(
             visible = showSubtitleMenu,
-            enter = fadeIn(),
-            exit = fadeOut()
+            enter = fadeIn(androidx.compose.animation.core.tween(150)),
+            exit = fadeOut(androidx.compose.animation.core.tween(200))
         ) {
             SubtitleMenu(
                 subtitles = uiState.subtitles,
@@ -2346,8 +2356,8 @@ fun PlayerScreen(
         // Volume indicator
         AnimatedVisibility(
             visible = showVolumeIndicator,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn(androidx.compose.animation.core.tween(150)),
+            exit = fadeOut(androidx.compose.animation.core.tween(200)),
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .padding(end = 48.dp)
@@ -2395,8 +2405,8 @@ fun PlayerScreen(
         // Aspect ratio indicator - brief center popup
         AnimatedVisibility(
             visible = showAspectIndicator,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn(androidx.compose.animation.core.tween(150)),
+            exit = fadeOut(androidx.compose.animation.core.tween(200)),
             modifier = Modifier.align(Alignment.Center)
         ) {
             Box(
@@ -2416,8 +2426,8 @@ fun PlayerScreen(
         // Positioned near bottom (above trackbar area), no background, just text with shadow
         AnimatedVisibility(
             visible = showSkipOverlay,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn(androidx.compose.animation.core.tween(150)),
+            exit = fadeOut(androidx.compose.animation.core.tween(200)),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 120.dp)
@@ -2440,8 +2450,8 @@ fun PlayerScreen(
         // Error modal — friendly setup guide for no-addons, red error for actual playback failures
         AnimatedVisibility(
             visible = uiState.error != null,
-            enter = fadeIn(),
-            exit = fadeOut()
+            enter = fadeIn(androidx.compose.animation.core.tween(150)),
+            exit = fadeOut(androidx.compose.animation.core.tween(200))
         ) {
             val isSetup = uiState.isSetupError
             val accentColor = if (isSetup) Color(0xFF3B82F6) else Color(0xFFEF4444) // blue vs red

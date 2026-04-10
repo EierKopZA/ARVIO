@@ -1151,6 +1151,18 @@ class MediaRepository @Inject constructor(
             null
         }
     }
+
+    /** Instant synchronous peek into the in-memory logo cache. */
+    fun peekCachedLogoUrl(mediaType: MediaType, mediaId: Int): String? {
+        val cacheKey = "${mediaType}_logo_$mediaId"
+        return if (logoCache.containsKey(cacheKey)) getFromCache(logoCache, cacheKey) else null
+    }
+
+    /** Instant synchronous peek into the in-memory season episodes cache. */
+    fun peekCachedSeasonEpisodes(tvId: Int, seasonNumber: Int): List<Episode>? {
+        val cacheKey = "tv_${tvId}_season_$seasonNumber"
+        return getFromCache(seasonEpisodesCache, cacheKey)
+    }
     
     /**
      * Get trailer key (YouTube)

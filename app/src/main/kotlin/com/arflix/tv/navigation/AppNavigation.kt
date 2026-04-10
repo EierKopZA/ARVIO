@@ -1,5 +1,9 @@
 package com.arflix.tv.navigation
 
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -126,7 +130,15 @@ fun AppNavigation(
 
     NavHost(
         navController = navController,
-        startDestination = startDestination
+        startDestination = startDestination,
+        // Premium screen transitions — subtle fade + slight depth push.
+        // Netflix TV uses ~250ms fade; this is tuned for Android TV's 60fps.
+        // Pure crossfade — no horizontal slides (those feel mobile, not TV).
+        // Netflix TV uses ~250ms crossfade for all screen transitions.
+        enterTransition = { fadeIn(androidx.compose.animation.core.tween(250)) },
+        exitTransition = { fadeOut(androidx.compose.animation.core.tween(200)) },
+        popEnterTransition = { fadeIn(androidx.compose.animation.core.tween(250)) },
+        popExitTransition = { fadeOut(androidx.compose.animation.core.tween(200)) }
     ) {
         // Login screen
         composable(Screen.Login.route) {

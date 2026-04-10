@@ -20,10 +20,14 @@ import androidx.compose.foundation.focusable
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.StarOutline
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.IconButton
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -182,7 +186,10 @@ fun TvScreen(
     val channels = uiState.filteredChannels(selectedGroup)
     val safeChannelIndex = channelIndex.coerceIn(0, (channels.size - 1).coerceAtLeast(0))
     val selectedChannel = selectedChannelId?.let { uiState.channelLookup[it] }
-    val playingChannel = selectedChannel ?: playingChannelId?.let { uiState.channelLookup[it] }
+    // Actual playback should be driven by the currently playing channel first.
+    // A stale selectedChannelId (e.g. after group changes) can otherwise override
+    // the playing channel and make the UI look like clicking one channel opens another.
+    val playingChannel = playingChannelId?.let { uiState.channelLookup[it] } ?: selectedChannel
 
     // Auto-select channel when navigated from Home "Favorite TV" row.
     // If initialStreamUrl was provided, playback already started instantly —
@@ -609,7 +616,7 @@ fun TvScreen(
                                 TvFocusZone.SIDEBAR -> Unit
 
                                 TvFocusZone.GROUPS -> if (groupIndex > 0) groupIndex-- else focusZone = TvFocusZone.SIDEBAR
-                                TvFocusZone.GUIDE -> if (channelIndex > 0) channelIndex--
+                                TvFocusZone.GUIDE -> if (channelIndex > 0) channelIndex-- else focusZone = TvFocusZone.SIDEBAR
                             }
                             true
                         }
@@ -696,6 +703,7 @@ fun TvScreen(
                             groupIndex = index
                             focusZone = TvFocusZone.GROUPS
                             channelIndex = 0
+                            selectedChannelId = null
                         },
                         onGroupLongPress = { index ->
                             groupIndex = index
@@ -993,7 +1001,7 @@ fun TvScreen(
                         }
                     )
 
-                    // Premium EPG overlay (toggle with OK, auto-hides after 5s)
+                    // Premium EPG overlay (toggle with OK/tap, auto-hides after 5s)
                     AnimatedVisibility(
                         visible = showFullscreenOverlay,
                         enter = fadeIn(),
@@ -1005,6 +1013,94 @@ fun TvScreen(
                             nextProgram = fsNext,
                             isMobile = isMobile
                         )
+                    }
+
+                    // Mobile controls: back button + channel prev/next
+                    if (isMobile) {
+                        AnimatedVisibility(
+                            visible = showFullscreenOverlay,
+                            enter = fadeIn(),
+                            exit = fadeOut()
+                        ) {
+                            // Back button (top-left)
+                            Box(
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                IconButton(
+                                    onClick = {
+                                        isFullScreen = false
+                                        showFullscreenOverlay = false
+                                    },
+                                    modifier = Modifier
+                                        .align(Alignment.TopStart)
+                                        .padding(start = 8.dp, top = 8.dp)
+                                        .size(44.dp)
+                                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(22.dp))
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowBack,
+                                        contentDescription = "Back to channel list",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+
+                                // Channel prev/next buttons (right side, vertically centered)
+                                Column(
+                                    modifier = Modifier
+                                        .align(Alignment.CenterEnd)
+                                        .padding(end = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    IconButton(
+                                        onClick = {
+                                            if (channels.isNotEmpty()) {
+                                                val currentIdx = channels.indexOfFirst { it.id == playingChannelId }
+                                                val prevIdx = if (currentIdx <= 0) channels.lastIndex else currentIdx - 1
+                                                val prevChannel = channels[prevIdx]
+                                                channelIndex = prevIdx
+                                                selectedChannelId = prevChannel.id
+                                                playingChannelId = prevChannel.id
+                                                fullscreenOverlayTrigger = System.currentTimeMillis()
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(22.dp))
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.SkipPrevious,
+                                            contentDescription = "Previous channel",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            if (channels.isNotEmpty()) {
+                                                val currentIdx = channels.indexOfFirst { it.id == playingChannelId }
+                                                val nextIdx = if (currentIdx < 0) 0 else (currentIdx + 1) % channels.size
+                                                val nextChannel = channels[nextIdx]
+                                                channelIndex = nextIdx
+                                                selectedChannelId = nextChannel.id
+                                                playingChannelId = nextChannel.id
+                                                fullscreenOverlayTrigger = System.currentTimeMillis()
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(22.dp))
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.SkipNext,
+                                            contentDescription = "Next channel",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

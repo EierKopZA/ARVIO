@@ -73,8 +73,9 @@ fun LoginScreen(
     )
 
     // Handle successful login
-    LaunchedEffect(uiState.authState) {
-        if (uiState.authState is AuthState.Authenticated) {
+    LaunchedEffect(uiState.loginReady) {
+        if (uiState.loginReady) {
+            viewModel.onLoginNavigationHandled()
             onLoginSuccess()
         }
     }

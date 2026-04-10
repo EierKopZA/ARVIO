@@ -125,41 +125,44 @@ fun Modifier.arvioFocusable(
         Modifier
     }
 
-    val layerModifier = if (scale != 1f) {
-        Modifier.graphicsLayer {
-            scaleX = scale
-            scaleY = scale
-            // Removed shadowElevation - it creates rectangular shadows that don't follow rounded corners
-            transformOrigin = focusTransformOrigin
-        }
-    } else {
-        Modifier
+    // Always apply graphicsLayer and drawWithContent — toggling modifier
+    // structure between frames forces Compose to diff different chains,
+    // causing micro-jank on the focus/unfocus edge. The GPU skips identity
+    // transforms (scale=1) for free, so the always-on approach has zero
+    // cost when unfocused.
+    val layerModifier = Modifier.graphicsLayer {
+        scaleX = scale
+        scaleY = scale
+        transformOrigin = focusTransformOrigin
     }
 
-    val borderModifier = if (highlightAlpha > 0f) {
-        Modifier.drawWithContent {
-            drawContent()
+    val borderModifier = Modifier.drawWithContent {
+        drawContent()
+        if (highlightAlpha > 0f) {
             val outline = shape.createOutline(size, layoutDirection, this)
-
-            // Simple solid border
-            val outlineStroke = Stroke(width = outlineWidth.toPx())
+            val borderWidth = outlineWidth.toPx()
             val ringColor = outlineColor.copy(alpha = highlightAlpha)
 
             when (outline) {
-                is Outline.Rectangle -> {
-                    drawRect(color = ringColor, style = outlineStroke)
-                }
                 is Outline.Rounded -> {
                     val path = Path().apply { addRoundRect(outline.roundRect) }
-                    drawPath(path = path, color = ringColor, style = outlineStroke)
+                    // Soft glow layers (cheap multi-stroke, no shader blur)
+                    // Creates the "focused card floats" perception like Netflix.
+                    val glow1 = Stroke(width = borderWidth + 10f)
+                    drawPath(path, outlineColor.copy(alpha = highlightAlpha * 0.08f), style = glow1)
+                    val glow2 = Stroke(width = borderWidth + 5f)
+                    drawPath(path, outlineColor.copy(alpha = highlightAlpha * 0.18f), style = glow2)
+                    // Sharp border on top
+                    drawPath(path, ringColor, style = Stroke(width = borderWidth))
+                }
+                is Outline.Rectangle -> {
+                    drawRect(color = ringColor, style = Stroke(width = borderWidth))
                 }
                 is Outline.Generic -> {
-                    drawPath(path = outline.path, color = ringColor, style = outlineStroke)
+                    drawPath(path = outline.path, color = ringColor, style = Stroke(width = borderWidth))
                 }
             }
         }
-    } else {
-        Modifier
     }
 
     this

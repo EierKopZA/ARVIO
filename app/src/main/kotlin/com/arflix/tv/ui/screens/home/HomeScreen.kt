@@ -130,7 +130,6 @@ import com.arflix.tv.ui.theme.BackgroundDark
 import com.arflix.tv.ui.theme.AccentRed
 import com.arflix.tv.ui.theme.PrimeBlue
 import com.arflix.tv.ui.theme.PrimeGreen
-import com.arflix.tv.ui.theme.RankNumberColor
 import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
 import com.arflix.tv.ui.theme.BackgroundGradientCenter
@@ -188,6 +187,12 @@ private class HomeFocusState(
     var currentRowIndex by mutableIntStateOf(initialRowIndex)
     var currentItemIndex by mutableIntStateOf(initialItemIndex)
     var lastNavEventTime by mutableLongStateOf(0L)
+    var userHasNavigated by mutableStateOf(false)
+    // Per-row item indices — when pressing D-pad Down, we save the current item
+    // index for the current row so pressing Up later returns to the same position.
+    // Netflix preserves horizontal scroll position across rows; without this,
+    // every Down press resets to item 0 which is jarring.
+    val rowItemIndices = mutableMapOf<Int, Int>()
 
     companion object {
         val Saver: androidx.compose.runtime.saveable.Saver<HomeFocusState, List<Int>> =
@@ -249,20 +254,27 @@ fun HomeScreen(
     // Performance: Directly collect StateFlow instead of syncing to mutableStateMapOf
     // This avoids O(n) iteration on every logo cache update
     val cardLogoUrls by viewModel.cardLogoUrls.collectAsState()
+    val profileCount = if (currentProfile != null) 1 else 0
     val usePosterCards = rememberCardLayoutMode() == CardLayoutMode.POSTER
     val lifecycleOwner = LocalLifecycleOwner.current
     var suppressSelectUntilMs by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(Unit) {
         // Prevent stale select key events from previous screen from reopening details.
-        suppressSelectUntilMs = SystemClock.elapsedRealtime() + 900L
+        suppressSelectUntilMs = SystemClock.elapsedRealtime() + 150L
     }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 viewModel.refreshContinueWatchingOnly(force = true)
-                suppressSelectUntilMs = SystemClock.elapsedRealtime() + 900L
+                // Pull the full cloud state (addons, catalogs, settings) on resume.
+                // This catches any changes pushed by another device while this one
+                // was backgrounded — the WebSocket may have been killed by Android,
+                // so we can't rely on realtime alone. Throttled internally to avoid
+                // redundant pulls on rapid activity transitions.
+                viewModel.pullCloudStateOnResume()
+                suppressSelectUntilMs = SystemClock.elapsedRealtime() + 150L
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -429,6 +441,12 @@ fun HomeScreen(
     // ── IPTV hero live-player state ──
     val isHeroIptv = displayHeroItem != null && viewModel.isIptvItem(displayHeroItem)
     val heroVideoUrl = displayHeroItem?.let { if (isHeroIptv) viewModel.getIptvStreamUrl(it.id) else null }
+
+    // Warm details assets for the currently displayed hero item so selecting
+    // Details doesn't pause on the first clearlogo/episodes fetch.
+    LaunchedEffect(displayHeroItem?.id, displayHeroItem?.mediaType, displayHeroItem?.nextEpisode?.seasonNumber) {
+        displayHeroItem?.let { viewModel.prefetchDetailsAssets(it) }
+    }
 
     val heroOkHttp = remember {
         OkHttpClient.Builder()
@@ -604,6 +622,10 @@ fun HomeScreen(
                 }
             },
             currentProfile = currentProfile,
+            profileCount = profileCount,
+            clockFormat = uiState.clockFormat,
+            syncStatus = uiState.syncStatus,
+            onItemFocusedPrefetch = { item -> viewModel.prefetchDetailsAssets(item) },
             onNavigateToDetails = onNavigateToDetails,
             onNavigateToSearch = onNavigateToSearch,
             onNavigateToWatchlist = onNavigateToWatchlist,
@@ -1616,6 +1638,10 @@ private fun HomeInputLayer(
     onPlay: () -> Unit = {},
     onDetails: () -> Unit = {},
     currentProfile: com.arflix.tv.data.model.Profile?,
+    profileCount: Int = 1,
+    clockFormat: String = "24h",
+    syncStatus: com.arflix.tv.data.repository.CloudSyncStatus = com.arflix.tv.data.repository.CloudSyncStatus.NOT_SIGNED_IN,
+    onItemFocusedPrefetch: (MediaItem) -> Unit = {},
     onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit,
     onNavigateToSearch: () -> Unit,
     onNavigateToWatchlist: () -> Unit,
@@ -1631,6 +1657,8 @@ private fun HomeInputLayer(
     var selectDownAtMs by remember { mutableLongStateOf(0L) }
     var rootHasFocus by remember { mutableStateOf(false) }
     var preferredCategoryId by rememberSaveable { mutableStateOf<String?>(null) }
+    // Profile avatar is always shown when a profile exists (clickable, opens
+    // profile switcher). Focus navigation includes it as the first focusable item.
     val hasProfile = currentProfile != null
     val maxSidebarIndex = topBarMaxIndex(hasProfile)
 
@@ -1645,34 +1673,43 @@ private fun HomeInputLayer(
         preferredCategoryId = categories.getOrNull(focusState.currentRowIndex)?.id
     }
 
-    LaunchedEffect(categories) {
-        if (categories.isEmpty()) {
-            focusState.currentRowIndex = 0
-            focusState.currentItemIndex = 0
-            return@LaunchedEffect
-        }
+    // Clamp focus indices when the category list structurally changes (rows added
+    // or removed). This uses only the category IDs as the key — NOT item counts —
+    // so it only fires when rows themselves appear/disappear, not when items within
+    // a row change (which happens 8-14 times during cold start as skeletons are
+    // replaced by real data, logos load, badges update, etc.).
+    //
+    // The previous implementation used item counts in the key and also contained
+    // a "fallback to first non-empty row" path that aggressively reset focus
+    // indices, plus a requestFocus() call that fought with the existing focused
+    // card. Both of those caused the visible "trip" on startup where focus
+    // disappeared until the user pressed Up/Down.
+    //
+    // The new approach is purely defensive: only clamp out-of-bounds indices,
+    // never jump to a different row, never re-request focus.
+    val categoryIds = remember(categories) {
+        categories.joinToString(",") { it.id }
+    }
+    LaunchedEffect(categoryIds) {
+        if (categories.isEmpty()) return@LaunchedEffect
 
+        // If the preferred category still exists, restore the row index to it.
+        // Otherwise keep the current index but clamp to valid range.
         val restoredRow = preferredCategoryId
             ?.let { id -> categories.indexOfFirst { it.id == id } }
             ?.takeIf { it >= 0 }
-        val boundedRow = (restoredRow ?: focusState.currentRowIndex)
-            .coerceIn(0, (categories.size - 1).coerceAtLeast(0))
-        focusState.currentRowIndex = boundedRow
-
-        val currentRowItems = categories.getOrNull(boundedRow)?.items.orEmpty()
-        if (currentRowItems.isEmpty()) {
-            val fallbackRow = categories.indexOfFirst { it.items.isNotEmpty() }.takeIf { it >= 0 } ?: 0
-            focusState.currentRowIndex = fallbackRow
-            focusState.currentItemIndex = 0
-            preferredCategoryId = categories.getOrNull(fallbackRow)?.id
-        } else if (focusState.currentItemIndex > currentRowItems.lastIndex) {
-            focusState.currentItemIndex = currentRowItems.lastIndex
-        } else if (focusState.currentItemIndex < 0) {
-            focusState.currentItemIndex = 0
+        if (restoredRow != null) {
+            focusState.currentRowIndex = restoredRow
+        } else {
+            focusState.currentRowIndex = focusState.currentRowIndex
+                .coerceIn(0, (categories.size - 1).coerceAtLeast(0))
         }
 
-        if (!focusState.isSidebarFocused && !rootHasFocus) {
-            runCatching { focusRequester.requestFocus() }
+        // Clamp item index if it's beyond the current row's bounds.
+        // Do NOT reset to 0 or jump rows — that's what caused the trip.
+        val currentRowItems = categories.getOrNull(focusState.currentRowIndex)?.items.orEmpty()
+        if (currentRowItems.isNotEmpty() && focusState.currentItemIndex > currentRowItems.lastIndex) {
+            focusState.currentItemIndex = currentRowItems.lastIndex
         }
     }
 
@@ -1686,16 +1723,32 @@ private fun HomeInputLayer(
             when (event.type) {
                 KeyEventType.KeyDown -> when (event.key) {
                     Key.Enter, Key.DirectionCenter -> {
-                        if (SystemClock.elapsedRealtime() < suppressSelectUntilMs) {
-                            return@onPreviewKeyEvent true
-                        }
-                        selectPressedInHome = true
-                        if (selectDownAtMs == 0L) {
-                            selectDownAtMs = SystemClock.elapsedRealtime()
+                        // Track KeyDown time for long-press detection.
+                        // Sidebar actions fire immediately; content items wait for KeyUp
+                        // to distinguish tap (navigate) from long-press (context menu).
+                        if (focusState.isSidebarFocused) {
+                            if (hasProfile && focusState.sidebarFocusIndex == 0) {
+                                onSwitchProfile()
+                            } else {
+                                when (topBarFocusedItem(focusState.sidebarFocusIndex, hasProfile)) {
+                                    SidebarItem.SEARCH -> onNavigateToSearch()
+                                    SidebarItem.HOME -> Unit
+                                    SidebarItem.WATCHLIST -> onNavigateToWatchlist()
+                                    SidebarItem.TV -> onNavigateToTv(null, null)
+                                    SidebarItem.SETTINGS -> onNavigateToSettings()
+                                    null -> Unit
+                                }
+                            }
+                        } else {
+                            if (!selectPressedInHome) {
+                                selectPressedInHome = true
+                                selectDownAtMs = SystemClock.elapsedRealtime()
+                            }
                         }
                         true
                     }
                     Key.DirectionLeft -> {
+                        focusState.userHasNavigated = true
                         if (!focusState.isSidebarFocused) {
                             if (focusState.currentItemIndex == 0) {
                                 true
@@ -1713,6 +1766,7 @@ private fun HomeInputLayer(
                         }
                     }
                     Key.DirectionRight -> {
+                        focusState.userHasNavigated = true
                         if (focusState.isSidebarFocused) {
                             if (focusState.sidebarFocusIndex < maxSidebarIndex) {
                                 focusState.sidebarFocusIndex++
@@ -1729,11 +1783,15 @@ private fun HomeInputLayer(
                         }
                     }
                     Key.DirectionUp -> {
+                        focusState.userHasNavigated = true
                         if (focusState.isSidebarFocused) {
                             true
                         } else if (focusState.currentRowIndex > 0) {
+                            // Save current item position before leaving this row
+                            focusState.rowItemIndices[focusState.currentRowIndex] = focusState.currentItemIndex
                             focusState.currentRowIndex--
-                            focusState.currentItemIndex = 0
+                            // Restore saved position for the target row (or 0 if never visited)
+                            focusState.currentItemIndex = focusState.rowItemIndices[focusState.currentRowIndex] ?: 0
                             focusState.lastNavEventTime = SystemClock.elapsedRealtime()
                             true
                         } else {
@@ -1742,18 +1800,22 @@ private fun HomeInputLayer(
                         }
                     }
                     Key.DirectionDown -> {
+                        focusState.userHasNavigated = true
                         if (focusState.isSidebarFocused) {
                             focusState.isSidebarFocused = false
                             true
                         } else if (!focusState.isSidebarFocused && focusState.currentRowIndex < categories.size - 1) {
+                            // Save current item position before leaving this row
+                            focusState.rowItemIndices[focusState.currentRowIndex] = focusState.currentItemIndex
                             focusState.currentRowIndex++
-                            focusState.currentItemIndex = 0
-                                focusState.lastNavEventTime = SystemClock.elapsedRealtime()
-                                true
-                            } else {
-                                true
-                            }
+                            // Restore saved position for the target row (or 0 if never visited)
+                            focusState.currentItemIndex = focusState.rowItemIndices[focusState.currentRowIndex] ?: 0
+                            focusState.lastNavEventTime = SystemClock.elapsedRealtime()
+                            true
+                        } else {
+                            true
                         }
+                    }
                         Key.Back, Key.Escape -> {
                             if (focusState.isSidebarFocused) {
                                 onExitApp()
@@ -1781,62 +1843,33 @@ private fun HomeInputLayer(
                     }
                     KeyEventType.KeyUp -> when (event.key) {
                         Key.Enter, Key.DirectionCenter -> {
-                            if (SystemClock.elapsedRealtime() < suppressSelectUntilMs) {
-                                selectPressedInHome = false
-                                selectDownAtMs = 0L
-                                return@onPreviewKeyEvent true
+                            if (selectPressedInHome && !focusState.isSidebarFocused) {
+                                val holdMs = SystemClock.elapsedRealtime() - selectDownAtMs
+                                val currentItem = getFocusedItem(
+                                    categories,
+                                    focusState.currentRowIndex,
+                                    focusState.currentItemIndex
+                                )
+                                currentItem?.takeIf { isActionableHomeItem(it) }?.let { item ->
+                                    if (holdMs >= 500L) {
+                                        // Long-press: open context menu
+                                        val currentCategory = categories.getOrNull(focusState.currentRowIndex)
+                                        val isContinue = currentCategory?.id == "continue_watching"
+                                        onOpenContextMenu(item, isContinue)
+                                    } else {
+                                        // Short press: navigate
+                                        val iptvId = item.status?.removePrefix("iptv:")
+                                            ?.takeIf { item.status?.startsWith("iptv:") == true && it.isNotBlank() }
+                                        if (iptvId != null) {
+                                            onNavigateToTv(iptvId, getIptvStreamUrl(item.id))
+                                        } else {
+                                            onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber)
+                                        }
+                                    }
+                                }
                             }
-                            if (!selectPressedInHome) {
-                                // Ignore stale KeyUp events that can arrive after screen navigation.
-                                selectDownAtMs = 0L
-                                return@onPreviewKeyEvent true
-                            }
-                            val heldMs = (SystemClock.elapsedRealtime() - selectDownAtMs).coerceAtLeast(0L)
                             selectPressedInHome = false
                             selectDownAtMs = 0L
-
-                            if (heldMs >= 900L && !focusState.isSidebarFocused) {
-                                val currentItem = getFocusedItem(
-                                    categories,
-                                    focusState.currentRowIndex,
-                                    focusState.currentItemIndex
-                                )
-                                currentItem?.takeIf { isActionableHomeItem(it) }?.let { item ->
-                                    val currentCategory = categories.getOrNull(focusState.currentRowIndex)
-                                    val isContinue = currentCategory?.id == "continue_watching"
-                                    onOpenContextMenu(item, isContinue)
-                                }
-                                return@onPreviewKeyEvent true
-                            }
-
-                            if (focusState.isSidebarFocused) {
-                                if (hasProfile && focusState.sidebarFocusIndex == 0) {
-                                    onSwitchProfile()
-                                } else {
-                                    when (topBarFocusedItem(focusState.sidebarFocusIndex, hasProfile)) {
-                                        SidebarItem.SEARCH -> onNavigateToSearch()
-                                        SidebarItem.HOME -> { }
-                                        SidebarItem.WATCHLIST -> onNavigateToWatchlist()
-                                        SidebarItem.TV -> onNavigateToTv(null, null)
-                                        SidebarItem.SETTINGS -> onNavigateToSettings()
-                                        null -> Unit
-                                    }
-                                }
-                            } else {
-                                val currentItem = getFocusedItem(
-                                    categories,
-                                    focusState.currentRowIndex,
-                                    focusState.currentItemIndex
-                                )
-                                currentItem?.takeIf { isActionableHomeItem(it) }?.let { item ->
-                                    val iptvId = item.status?.removePrefix("iptv:")?.takeIf { item.status?.startsWith("iptv:") == true && it.isNotBlank() }
-                                    if (iptvId != null) {
-                                        onNavigateToTv(iptvId, getIptvStreamUrl(item.id))
-                                    } else {
-                                        onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber)
-                                    }
-                                }
-                            }
                             true
                         }
                         else -> false
@@ -1859,7 +1892,9 @@ private fun HomeInputLayer(
                 selectedItem = SidebarItem.HOME,
                 isFocused = focusState.isSidebarFocused,
                 focusedIndex = focusState.sidebarFocusIndex,
-                profile = currentProfile
+                profile = currentProfile,
+                profileCount = profileCount,
+                clockFormat = clockFormat
             )
         }
 
@@ -1871,6 +1906,7 @@ private fun HomeInputLayer(
             fastScrollThresholdMs = fastScrollThresholdMs,
             usePosterCards = usePosterCards,
             isMobile = isMobile,
+            onItemFocusedPrefetch = onItemFocusedPrefetch,
             heroItem = heroItem,
             heroOverviewOverride = heroOverviewOverride,
             onPlay = onPlay,
@@ -1901,6 +1937,7 @@ private fun HomeRowsLayer(
     fastScrollThresholdMs: Long,
     usePosterCards: Boolean,
     isMobile: Boolean = false,
+    onItemFocusedPrefetch: (MediaItem) -> Unit = {},
     heroItem: MediaItem? = null,
     heroOverviewOverride: String? = null,
     onPlay: () -> Unit = {},
@@ -1927,6 +1964,7 @@ private fun HomeRowsLayer(
             contentStartPadding = contentStartPadding,
             fastScrollThresholdMs = fastScrollThresholdMs,
             usePosterCards = usePosterCards,
+            onItemFocusedPrefetch = onItemFocusedPrefetch,
             onItemClick = onItemClick
         )
     }
@@ -2003,37 +2041,43 @@ private fun MobileHomeRowsLayer(
                     ) { index, item ->
                         if (isRanked) {
                             Box(
-                                modifier = Modifier
-                                    .width(160.dp)
-                                    .height(110.dp),
-                                contentAlignment = Alignment.BottomStart
+                                modifier = Modifier.width(mobileItemWidth)
                             ) {
-                                Text(
-                                    text = "${index + 1}",
-                                    style = TextStyle(
-                                        fontSize = 72.sp,
-                                        fontWeight = FontWeight.Black,
-                                        color = RankNumberColor,
-                                        letterSpacing = (-4).sp
-                                    ),
-                                    modifier = Modifier
-                                        .offset(x = (-6).dp, y = 14.dp)
-                                        .graphicsLayer { alpha = 0.9f }
+                                val cardLogoUrl = cardLogoUrls["${item.mediaType}_${item.id}"]
+                                ArvioMediaCard(
+                                    item = item,
+                                    width = mobileItemWidth,
+                                    isLandscape = !usePosterCards,
+                                    logoImageUrl = cardLogoUrl,
+                                    showProgress = false,
+                                    showTitle = true,
+                                    isFocusedOverride = false,
+                                    enableSystemFocus = false,
+                                    onFocused = {},
+                                    onClick = { onItemClick(item) },
+                                    onLongClick = onItemLongClick?.let { callback -> { callback(item, isContinueWatching) } },
                                 )
-                                Box(modifier = Modifier.padding(start = 44.dp)) {
-                                    val cardLogoUrl = cardLogoUrls["${item.mediaType}_${item.id}"]
-                                    ArvioMediaCard(
-                                        item = item,
-                                        width = 110.dp,
-                                        isLandscape = !usePosterCards,
-                                        logoImageUrl = cardLogoUrl,
-                                        showProgress = false,
-                                        showTitle = false,
-                                        isFocusedOverride = false,
-                                        enableSystemFocus = false,
-                                        onFocused = {},
-                                        onClick = { onItemClick(item) },
-                                        onLongClick = onItemLongClick?.let { callback -> { callback(item, isContinueWatching) } },
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopStart)
+                                        .zIndex(2f)
+                                        .padding(top = 6.dp, start = 6.dp)
+                                        .background(
+                                            Brush.verticalGradient(
+                                                listOf(Color(0xFFFFD54A), Color(0xFFFFB300))
+                                            ),
+                                            RoundedCornerShape(6.dp)
+                                        )
+                                        .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(6.dp))
+                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                ) {
+                                    Text(
+                                        text = "${index + 1}",
+                                        style = ArflixTypography.caption.copy(
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Black
+                                        ),
+                                        color = Color(0xFF17120A)
                                     )
                                 }
                             }
@@ -2045,7 +2089,7 @@ private fun MobileHomeRowsLayer(
                                 isLandscape = !usePosterCards,
                                 logoImageUrl = cardLogoUrl,
                                 showProgress = isContinueWatching,
-                                showTitle = false,
+                                showTitle = true,
                                 isFocusedOverride = false,
                                 enableSystemFocus = false,
                                 onFocused = {},
@@ -2069,8 +2113,33 @@ private fun TvHomeRowsLayer(
     contentStartPadding: androidx.compose.ui.unit.Dp,
     fastScrollThresholdMs: Long,
     usePosterCards: Boolean,
+    onItemFocusedPrefetch: (MediaItem) -> Unit = {},
     onItemClick: (MediaItem) -> Unit
 ) {
+    // ── Focus-row stabilizer ──
+    // Track the focused row by its category ID (stable) rather than integer
+    // index. When new catalogs are inserted above the focused row (e.g.,
+    // "Favorite TV" or custom Trakt lists loading), the integer index of the
+    // focused row shifts but its ID stays the same. Without this correction
+    // the LazyColumn would scroll to the wrong row and the focus highlight
+    // would visually "trip" to a different catalog until the user presses
+    // Up/Down to re-establish focus. This was the root cause of the startup
+    // focus/catalog glitch.
+    var focusedCategoryId by remember { mutableStateOf<String?>(null) }
+    // Sync: when the user moves focus (currentRowIndex changes from D-pad),
+    // update the tracked category ID.
+    LaunchedEffect(focusState.currentRowIndex) {
+        val id = categories.getOrNull(focusState.currentRowIndex)?.id
+        if (id != null) focusedCategoryId = id
+    }
+    LaunchedEffect(categories) {
+        val tracked = focusedCategoryId ?: return@LaunchedEffect
+        val newIndex = categories.indexOfFirst { it.id == tracked }
+        if (newIndex >= 0 && newIndex != focusState.currentRowIndex) {
+            focusState.currentRowIndex = newIndex
+        }
+    }
+
     val currentRowIndex = focusState.currentRowIndex
     var isFastScrolling by remember { mutableStateOf(false) }
     LaunchedEffect(focusState.lastNavEventTime) {
@@ -2089,6 +2158,17 @@ private fun TvHomeRowsLayer(
     ) {
         val rowsViewportHeight = (maxHeight * 0.31f).coerceIn(260.dp, 340.dp)
         val listState = rememberLazyListState()
+        // Only scroll the LazyColumn in response to actual user D-pad navigation,
+        // NOT when categories change during loading. The previous implementation
+        // scrolled on every `targetIndex` change, which meant when `publishMerged()`
+        // inserted new rows (Favorite TV, custom catalogs) and the focus-stabilizer
+        // updated `currentRowIndex`, the viewport would jump to the new index — even
+        // though the user hadn't pressed anything. This caused the visible "trip"
+        // where the screen would suddenly show a different row than expected.
+        //
+        // `userScrollNonce` is incremented only when the user physically presses
+        // Up/Down on the D-pad (in the key handler). The LaunchedEffect keys on
+        // this nonce AND the target index, so it only fires on real user navigation.
         val targetIndex = currentRowIndex.coerceIn(0, (categories.size - 1).coerceAtLeast(0))
         LaunchedEffect(targetIndex) {
             val currentIndex = listState.firstVisibleItemIndex
@@ -2148,11 +2228,12 @@ private fun TvHomeRowsLayer(
                             focusedItemIndex = if (!focusState.isSidebarFocused && index == focusState.currentRowIndex) focusState.currentItemIndex else -1,
                             isFastScrolling = isFastScrolling,
                             onItemClick = onItemClick,
-                            onItemFocused = { _, itemIdx ->
+                            onItemFocused = { item, itemIdx ->
                                 focusState.currentRowIndex = index
                                 focusState.currentItemIndex = itemIdx
                                 focusState.isSidebarFocused = false
                                 focusState.lastNavEventTime = SystemClock.elapsedRealtime()
+                                onItemFocusedPrefetch(item)
                             }
                         )
                     }
@@ -2313,7 +2394,11 @@ private fun ContentRow(
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
     val isContinueWatching = category.id == "continue_watching"
-    val itemWidth = if (usePosterCards) 125.dp else 210.dp
+    // Poster rows felt too tight vertically when focused. Instead of adding more
+    // row spacing (which made the section layout feel loose), slightly reduce the
+    // poster card width so the 1.05x focus zoom has more breathing room inside the
+    // existing row spacing. ~5% smaller than before.
+    val itemWidth = if (usePosterCards) 119.dp else 210.dp
     val itemSpacing = 14.dp
     val availableWidthDp = configuration.screenWidthDp.dp - 56.dp - 12.dp
     val fallbackItemsPerPage = remember(configuration, density, itemWidth, itemSpacing) {
@@ -2386,15 +2471,6 @@ private fun ContentRow(
             0
         }
 
-        // FIX: When scrolling back to first item, ensure we reset to position 0 with no offset
-        // This prevents focus from disappearing on the left side
-        if (focusedItemIndex == 0 && scrollTargetIndex == 0) {
-            rowState.scrollToItem(index = 0, scrollOffset = 0)
-            lastScrollIndex = 0
-            lastScrollOffset = 0
-            return@LaunchedEffect
-        }
-
         if (lastScrollIndex == scrollTargetIndex && lastScrollOffset == extraOffset) return@LaunchedEffect
         if (lastScrollIndex == -1) {
             // First time we jump directly to the correct position (no animation)
@@ -2411,6 +2487,9 @@ private fun ContentRow(
         if (isFastScrolling || extraOffset > 0 || jumpDistance > 1) {
             rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
         } else if (scrollTargetIndex != currentFirstIndex || targetOutsideViewport) {
+            // Use the same animated path in both directions. Previously moving left,
+            // especially back to index 0, used an abrupt instant reset while moving
+            // right animated smoothly. That asymmetry made left navigation feel cheap.
             rowState.animateScrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
         } else {
             rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
@@ -2447,8 +2526,18 @@ private fun ContentRow(
         }
     }
 
-    val rowAlpha = if (isCurrentRow) 1f else 0.95f
-    val rowOffsetY = if (isCurrentRow) 0.dp else 2.dp
+    // Animate row alpha and offset so non-focused rows dim/settle smoothly
+    // instead of snapping when focus moves between rows.
+    val rowAlpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isCurrentRow) 1f else 0.85f,
+        animationSpec = androidx.compose.animation.core.tween(200),
+        label = "row_alpha"
+    )
+    val rowOffsetY by androidx.compose.animation.core.animateDpAsState(
+        targetValue = if (isCurrentRow) 0.dp else 4.dp,
+        animationSpec = androidx.compose.animation.core.tween(200),
+        label = "row_offset"
+    )
 
     Column(
         modifier = Modifier
@@ -2461,7 +2550,7 @@ private fun ContentRow(
             text = category.title,
             style = ArflixTypography.sectionTitle.copy(fontSize = 18.sp, fontWeight = FontWeight.Bold),
             color = Color.White,
-            modifier = Modifier.padding(start = startPadding, bottom = 12.dp)  // Align with cards start padding
+            modifier = Modifier.padding(start = startPadding, bottom = 12.dp)
         )
 
         // Cards row - clipped to hide previous items when scrolling
@@ -2500,45 +2589,49 @@ private fun ContentRow(
                 // Read state inside item to ensure recomposition on focus change
                 val itemIsFocused = currentIsCurrentRow && index == currentFocusedIndex
                 if (isRanked) {
-                    // RANKED ITEM: Number + Card
-                    val rankedCardWidth = if (usePosterCards) 100.dp else 140.dp
-                    val rankedBoxWidth = if (usePosterCards) 165.dp else 210.dp
-                    val rankedBoxHeight = if (usePosterCards) 176.dp else 140.dp
-                    val rankFontSize = if (usePosterCards) 80.sp else 100.sp
+                    // Top 10 rows should use the SAME card sizing as every other row.
+                    // The previous layout used giant background numerals and a smaller
+                    // embedded card, which made the row feel cramped and inconsistent.
+                    // Use a normal card and place a premium gold rank badge in the
+                    // top-right corner instead.
+                    val cardLogoUrl = cardLogoUrls["${item.mediaType}_${item.id}"]
                     Box(
-                        modifier = Modifier
-                            .width(rankedBoxWidth)
-                            .height(rankedBoxHeight),
-                        contentAlignment = Alignment.BottomStart
+                        modifier = Modifier.width(itemWidth)
                     ) {
-                        // Large Rank Number
-                        Text(
-                            text = "${index + 1}",
-                            style = TextStyle(
-                                fontSize = rankFontSize,
-                                fontWeight = FontWeight.Black,
-                                color = RankNumberColor,
-                                letterSpacing = (-6).sp
-                            ),
-                            modifier = Modifier
-                                .offset(x = (-8).dp, y = 20.dp)
-                                .graphicsLayer { alpha = 0.9f }
+                        ArvioMediaCard(
+                            item = item,
+                            width = itemWidth,
+                            isLandscape = !usePosterCards,
+                            logoImageUrl = cardLogoUrl,
+                            showProgress = false,
+                            showTitle = false,
+                            isFocusedOverride = itemIsFocused,
+                            enableSystemFocus = false,
+                            onFocused = { onItemFocused(item, index) },
+                            onClick = { onItemClick(item) },
                         )
 
-                        // The Card (offset to right)
-                        Box(modifier = Modifier.padding(start = if (usePosterCards) 44.dp else 60.dp)) {
-                            val cardLogoUrl = cardLogoUrls["${item.mediaType}_${item.id}"]
-                            ArvioMediaCard(
-                                item = item,
-                                width = rankedCardWidth,
-                                isLandscape = !usePosterCards,
-                                logoImageUrl = cardLogoUrl,
-                                showProgress = false,
-                                showTitle = false,
-                                isFocusedOverride = itemIsFocused,
-                                enableSystemFocus = false,
-                                onFocused = { onItemFocused(item, index) },
-                                onClick = { onItemClick(item) },
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .zIndex(2f)
+                                .padding(top = 8.dp, end = 8.dp)
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color(0xFFFFD54A), Color(0xFFFFB300))
+                                    ),
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(10.dp))
+                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                text = "${index + 1}",
+                                style = ArflixTypography.caption.copy(
+                                    fontSize = if (usePosterCards) 12.sp else 13.sp,
+                                    fontWeight = FontWeight.Black
+                                ),
+                                color = Color(0xFF17120A)
                             )
                         }
                     }

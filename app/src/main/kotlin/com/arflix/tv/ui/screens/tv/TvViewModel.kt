@@ -121,17 +121,21 @@ class TvViewModel @Inject constructor(
                 // When navigating from Home, EPG was likely just loaded — no need to re-fetch.
                 val epgAgeMs = iptvRepository.cachedEpgAgeMs()
                 val epgIsRecent = epgAgeMs < 120_000L
-                if (hasPotentialEpg && cached.channels.isNotEmpty() && !epgIsRecent) {
-                    System.err.println("[EPG] Startup: forcing EPG refresh (cached EPG age=${epgAgeMs / 1000}s, hasEpg=${hasAnyEpgData(cached)})")
-                    maybeRefreshEpgInBackground(cached, forceRefresh = true)
+                if (needsChannelReload) {
+                    // Need to reload channels — show loading only if we have no channels
+                    refresh(force = true, showLoading = cached.channels.isEmpty(), forceEpg = true)
+                } else if (!hasAnyEpgData(cached) && hasPotentialEpg) {
+                    // Have channels but no EPG — refresh EPG silently in background
+                    // Never show loading spinner since channels are already displayed
+                    refresh(force = false, showLoading = false, forceEpg = true)
+                } else if (iptvRepository.isSnapshotStale(cached)) {
+                    // Snapshot is stale — refresh silently
+                    refresh(force = false, showLoading = false, forceEpg = !epgIsRecent)
                 } else if (hasPotentialEpg && cached.channels.isNotEmpty()) {
-                    System.err.println("[EPG] Startup: skipping EPG refresh (EPG is recent, age=${epgAgeMs / 1000}s)")
-                }
-                if (iptvRepository.isSnapshotStale(cached) || needsChannelReload) {
-                    refresh(force = needsChannelReload, showLoading = needsChannelReload)
+                    System.err.println("[EPG] Startup: using warm cached EPG (age=${epgAgeMs / 1000}s)")
                 }
             } else {
-                refresh(force = false, showLoading = true)
+                refresh(force = false, showLoading = true, forceEpg = true)
             }
         }
     }
@@ -162,14 +166,15 @@ class TvViewModel @Inject constructor(
         }
     }
 
-    fun refresh(force: Boolean, showLoading: Boolean = true) {
+    fun refresh(force: Boolean, showLoading: Boolean = true, forceEpg: Boolean = false) {
         if (refreshJob?.isActive == true) return
         if (force) {
             epgRefreshJob?.cancel()
         }
 
         refreshJob = viewModelScope.launch {
-            if (showLoading) {
+            val hasExistingChannels = _uiState.value.snapshot.channels.isNotEmpty()
+            if (showLoading && !hasExistingChannels) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = true,
                     error = null,
@@ -180,17 +185,36 @@ class TvViewModel @Inject constructor(
             runCatching {
                 iptvRepository.loadSnapshot(
                     forcePlaylistReload = force,
-                    // Keep TV startup responsive: load channels first, fetch EPG separately.
-                    forceEpgReload = false
-                ) { progress ->
-                    if (showLoading) {
+                    forceEpgReload = forceEpg,
+                    onProgress = { progress ->
+                        if (showLoading && !hasExistingChannels) {
+                            _uiState.value = _uiState.value.copy(
+                                isLoading = true,
+                                loadingMessage = progress.message,
+                                loadingPercent = progress.percent ?: _uiState.value.loadingPercent
+                            )
+                        }
+                    },
+                    onChannelsReady = { channels ->
+                        // Publish channels to UI immediately — don't wait for EPG.
+                        // This makes the TV page responsive even on cold start with no cache.
+                        val lookup = withContext(Dispatchers.Default) {
+                            channels.associateBy { it.id }
+                        }
+                        val currentSnapshot = _uiState.value.snapshot
                         _uiState.value = _uiState.value.copy(
-                            isLoading = true,
-                            loadingMessage = progress.message,
-                            loadingPercent = progress.percent ?: _uiState.value.loadingPercent
+                            isLoading = false,
+                            error = null,
+                            snapshot = currentSnapshot.copy(
+                                channels = channels,
+                                grouped = channels.groupBy { it.group.ifBlank { "Uncategorized" } }
+                            ),
+                            channelLookup = lookup,
+                            loadingMessage = null,
+                            loadingPercent = 0
                         )
                     }
-                }
+                )
             }.onSuccess { snapshot ->
                 val lookup = withContext(Dispatchers.Default) {
                     snapshot.channels.associateBy { it.id }
@@ -204,7 +228,9 @@ class TvViewModel @Inject constructor(
                     loadingPercent = 0
                 )
                 warmXtreamVodCache()
-                maybeRefreshEpgInBackground(snapshot)
+                if (!forceEpg) {
+                    maybeRefreshEpgInBackground(snapshot)
+                }
                 if (!force && _uiState.value.isConfigured && snapshot.channels.isEmpty()) {
                     // Soft refresh returned empty even though IPTV is configured:
                     // schedule one forced reload to bypass stale in-memory paths.
@@ -223,7 +249,7 @@ class TvViewModel @Inject constructor(
                 refreshJob = null
                 if (pendingForcedReload) {
                     pendingForcedReload = false
-                    refresh(force = true, showLoading = true)
+                    refresh(force = true, showLoading = true, forceEpg = true)
                 }
             }
         }
@@ -253,13 +279,14 @@ class TvViewModel @Inject constructor(
             runCatching {
                 iptvRepository.loadSnapshot(
                     forcePlaylistReload = false,
-                    forceEpgReload = true
-                ) { progress ->
-                    _uiState.value = _uiState.value.copy(
-                        loadingMessage = progress.message,
-                        loadingPercent = progress.percent ?: _uiState.value.loadingPercent
-                    )
-                }
+                    forceEpgReload = true,
+                    onProgress = { progress ->
+                        _uiState.value = _uiState.value.copy(
+                            loadingMessage = progress.message,
+                            loadingPercent = progress.percent ?: _uiState.value.loadingPercent
+                        )
+                    }
+                )
             }.onSuccess { refreshed ->
                 val lookup = withContext(Dispatchers.Default) {
                     refreshed.channels.associateBy { it.id }

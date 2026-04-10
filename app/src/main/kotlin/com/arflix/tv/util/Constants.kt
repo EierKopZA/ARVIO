@@ -35,6 +35,9 @@ object Constants {
     const val IMAGE_BASE = "https://image.tmdb.org/t/p/w780"
     const val IMAGE_BASE_LARGE = "https://image.tmdb.org/t/p/w1280"
     const val BACKDROP_BASE = "https://image.tmdb.org/t/p/w1280"
+    // Full quality for hero and detail backdrops — restored to "original" so
+    // 4K TV users get the sharpest image. The loading speed issue is addressed
+    // by aggressive preloading + disk caching (not by resolution downgrade).
     const val BACKDROP_BASE_LARGE = "https://image.tmdb.org/t/p/original"
     const val LOGO_BASE = "https://image.tmdb.org/t/p/w500"
     const val LOGO_BASE_LARGE = "https://image.tmdb.org/t/p/original"

@@ -28,6 +28,9 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.size.Precision
+import androidx.compose.ui.platform.LocalContext
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.ui.skin.ArvioFocusableSurface
@@ -66,12 +69,24 @@ fun ContinueWatchingCard(
             val focused = isFocused || surfaceFocused
 
             Box(modifier = Modifier.fillMaxSize()) {
-                AsyncImage(
-                    model = item.backdrop ?: item.image,
-                    contentDescription = item.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                // Use a sized ImageRequest so Coil decodes at the card's actual
+                // pixel dimensions instead of the source image's full resolution.
+                // Without this, "original"-sized TMDB backdrops (2-10 MB) were
+                // being decoded at full size, causing slow loads and memory waste.
+                val imageUrl = (item.backdrop ?: item.image).takeIf { !it.isNullOrBlank() }
+                if (imageUrl != null) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(imageUrl)
+                            .size(640, 360)
+                            .precision(Precision.INEXACT)
+                            .allowHardware(true)
+                            .build(),
+                        contentDescription = item.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
 
                 Box(
                     modifier = Modifier
@@ -224,12 +239,20 @@ fun ContinueWatchingCardCompact(
                     .aspectRatio(16f / 9f)
                     .background(ArvioSkin.colors.surfaceRaised, rememberArvioCardShape(ArvioSkin.radius.sm)),
             ) {
-                AsyncImage(
-                    model = item.backdrop ?: item.image,
-                    contentDescription = item.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                val compactUrl = (item.backdrop ?: item.image).takeIf { !it.isNullOrBlank() }
+                if (compactUrl != null) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(compactUrl)
+                            .size(200, 112)
+                            .precision(Precision.INEXACT)
+                            .allowHardware(true)
+                            .build(),
+                        contentDescription = item.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)

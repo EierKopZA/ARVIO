@@ -16,6 +16,7 @@ import com.arflix.tv.data.repository.AuthState
 import com.arflix.tv.data.repository.CatalogRepository
 import com.arflix.tv.data.repository.CloudSyncRepository
 import com.arflix.tv.data.repository.IptvRepository
+import com.arflix.tv.data.repository.IptvPlaylistEntry
 import com.arflix.tv.data.repository.LauncherContinueWatchingRepository
 import com.arflix.tv.data.repository.MediaRepository
 import com.arflix.tv.data.repository.ProfileManager
@@ -104,6 +105,7 @@ data class SettingsUiState(
     // IPTV
     val iptvM3uUrl: String = "",
     val iptvEpgUrl: String = "",
+    val iptvPlaylists: List<IptvPlaylistEntry> = emptyList(),
     val iptvStalkerUrl: String = "",
     val iptvStalkerMac: String = "",
     val iptvChannelCount: Int = 0,
@@ -135,6 +137,7 @@ data class SettingsUiState(
     val deviceModeOverride: String = "auto",
     // Skip profile selection
     val skipProfileSelection: Boolean = false,
+    val clockFormat: String = "24h",
     // Toast
     val toastMessage: String? = null,
     val toastType: ToastType = ToastType.INFO
@@ -183,6 +186,7 @@ class SettingsViewModel @Inject constructor(
     private fun autoPlayMinQualityKeyFor(profileId: String) = profileManager.profileStringKeyFor(profileId, "auto_play_min_quality")
     private fun trailerAutoPlayKey() = profileManager.profileBooleanKey("trailer_auto_play")
     private fun showBudgetKey() = profileManager.profileBooleanKey("show_budget_on_home")
+    private fun clockFormatKey() = profileManager.profileStringKey("clock_format")
     // Stored as a string because ProfileManager has no int helper and we only persist
     // a handful of discrete dB values. Parsed back to Int on read.
     private fun volumeBoostDbKey() = profileManager.profileStringKey("volume_boost_db")
@@ -274,6 +278,7 @@ class SettingsViewModel @Inject constructor(
             val autoPlayMinQuality = normalizeAutoPlayMinQuality(prefs[autoPlayMinQualityKey()])
             val trailerAutoPlay = prefs[trailerAutoPlayKey()] ?: false
             val showBudget = prefs[showBudgetKey()] ?: true
+            val clockFormat = prefs[clockFormatKey()] ?: "24h"
             val volumeBoostDb = prefs[volumeBoostDbKey()]?.toIntOrNull()?.coerceIn(0, 15) ?: 0
 
             val subtitleSize = prefs[subtitleSizeKey()] ?: "Medium"
@@ -327,6 +332,7 @@ class SettingsViewModel @Inject constructor(
                 traktExpiration = traktExpiration,
                 iptvM3uUrl = iptvConfig.m3uUrl,
                 iptvEpgUrl = iptvConfig.epgUrl,
+                iptvPlaylists = iptvConfig.playlists,
                 iptvStalkerUrl = iptvConfig.stalkerPortalUrl,
                 iptvStalkerMac = iptvConfig.stalkerMacAddress,
                 isSelfUpdateSupported = currentState.isSelfUpdateSupported,
@@ -343,7 +349,8 @@ class SettingsViewModel @Inject constructor(
                 addons = addons,
                 contentLanguage = contentLang,
                 deviceModeOverride = deviceModeOverride,
-                skipProfileSelection = skipProfileSelection
+                skipProfileSelection = skipProfileSelection,
+                clockFormat = clockFormat
             )
         }
     }
@@ -804,6 +811,15 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun cycleClockFormat() {
+        val next = if (_uiState.value.clockFormat == "24h") "12h" else "24h"
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[clockFormatKey()] = next }
+            _uiState.value = _uiState.value.copy(clockFormat = next)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
     /**
      * Cycle the volume boost through discrete dB steps: 0 -> 3 -> 6 -> 9 -> 12 -> 15 -> 0.
      * 0 dB = LoudnessEnhancer disabled (no overhead, no clipping). Above +12 dB is
@@ -979,10 +995,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             iptvRepository.observeConfig().collect { config ->
                 val current = _uiState.value
-                if (current.iptvM3uUrl != config.m3uUrl || current.iptvEpgUrl != config.epgUrl || current.iptvStalkerUrl != config.stalkerPortalUrl || current.iptvStalkerMac != config.stalkerMacAddress) {
+                if (current.iptvM3uUrl != config.m3uUrl || current.iptvEpgUrl != config.epgUrl || current.iptvStalkerUrl != config.stalkerPortalUrl || current.iptvStalkerMac != config.stalkerMacAddress || current.iptvPlaylists != config.playlists) {
                     _uiState.value = current.copy(
                         iptvM3uUrl = config.m3uUrl,
                         iptvEpgUrl = config.epgUrl,
+                        iptvPlaylists = config.playlists,
                         iptvStalkerUrl = config.stalkerPortalUrl,
                         iptvStalkerMac = config.stalkerMacAddress
                     )
@@ -1199,10 +1216,24 @@ class SettingsViewModel @Inject constructor(
         saveIptvConfig(m3uInput, epgInput)
     }
 
+    fun saveIptvPlaylists(playlists: List<IptvPlaylistEntry>) {
+        viewModelScope.launch {
+            iptvRepository.savePlaylists(playlists)
+            _uiState.value = _uiState.value.copy(
+                iptvPlaylists = playlists.filter { it.m3uUrl.isNotBlank() },
+                toastMessage = "IPTV playlists updated",
+                toastType = ToastType.SUCCESS
+            )
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
     fun refreshIptv(showToast: Boolean = true, configured: Boolean = false, force: Boolean = true) {
         viewModelScope.launch {
             val currentConfig = iptvRepository.observeConfig().first()
-            if (currentConfig.m3uUrl.isBlank() && currentConfig.stalkerPortalUrl.isBlank()) return@launch
+            // Check legacy m3uUrl, multi-playlist entries, and Stalker portal
+            val hasPlaylists = currentConfig.playlists.any { it.m3uUrl.isNotBlank() && it.enabled }
+            if (currentConfig.m3uUrl.isBlank() && currentConfig.stalkerPortalUrl.isBlank() && !hasPlaylists) return@launch
 
             val runningJob = iptvLoadJob
             if (runningJob?.isActive == true) {
@@ -1215,14 +1246,15 @@ class SettingsViewModel @Inject constructor(
             runCatching {
                 val snapshot = iptvRepository.loadSnapshot(
                     forcePlaylistReload = force,
-                    forceEpgReload = false
-                ) { progress ->
-                    _uiState.value = _uiState.value.copy(
-                        isIptvLoading = true,
-                        iptvProgressText = progress.message,
-                        iptvProgressPercent = progress.percent ?: _uiState.value.iptvProgressPercent
-                    )
-                }
+                    forceEpgReload = false,
+                    onProgress = { progress ->
+                        _uiState.value = _uiState.value.copy(
+                            isIptvLoading = true,
+                            iptvProgressText = progress.message,
+                            iptvProgressPercent = progress.percent ?: _uiState.value.iptvProgressPercent
+                        )
+                    }
+                )
                 val doneMsg = if (configured) {
                     snapshot.epgWarning ?: "Connected. Loaded ${snapshot.channels.size} channels."
                 } else {

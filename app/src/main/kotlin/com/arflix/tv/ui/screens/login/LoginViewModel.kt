@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arflix.tv.data.repository.AuthRepository
 import com.arflix.tv.data.repository.AuthState
+import com.arflix.tv.data.repository.CloudSyncRepository
 import com.arflix.tv.data.repository.StreamRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,13 +20,15 @@ data class LoginUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val authState: AuthState = AuthState.Loading,
-    val googleSignInRequest: GetCredentialRequest? = null
+    val googleSignInRequest: GetCredentialRequest? = null,
+    val loginReady: Boolean = false
 )
 
 @HiltViewModel
 class LoginViewModel @Inject constructor(
     private val authRepository: AuthRepository,
-    private val streamRepository: StreamRepository
+    private val streamRepository: StreamRepository,
+    private val cloudSyncRepository: CloudSyncRepository
 ) : ViewModel() {
     
     private val _uiState = MutableStateFlow(LoginUiState())
@@ -51,15 +54,21 @@ class LoginViewModel @Inject constructor(
 
             val result = authRepository.signIn(email, password)
 
-            // Sync addons from cloud after successful login
+            // Full cloud restore after successful login — not just addons.
+            // The previous flow only called syncAddonsFromCloud(), so catalogs,
+            // IPTV favorites, watchlist, and other cloud-backed state never came
+            // down on a fresh login. This is why TV-side changes weren't visible
+            // on the phone even after logout/login.
             if (result.isSuccess) {
-                streamRepository.syncAddonsFromCloud()
+                runCatching { cloudSyncRepository.pullFromCloud() }
+                runCatching { streamRepository.syncAddonsFromCloud() }
             }
 
             _uiState.update { state ->
                 state.copy(
                     isLoading = false,
-                    error = result.exceptionOrNull()?.message
+                    error = result.exceptionOrNull()?.message,
+                    loginReady = result.isSuccess
                 )
             }
         }
@@ -106,18 +115,23 @@ class LoginViewModel @Inject constructor(
 
             val authResult = authRepository.handleGoogleSignInResult(result)
 
-            // Sync addons from cloud after successful login
             if (authResult.isSuccess) {
-                streamRepository.syncAddonsFromCloud()
+                runCatching { cloudSyncRepository.pullFromCloud() }
+                runCatching { streamRepository.syncAddonsFromCloud() }
             }
 
             _uiState.update { state ->
                 state.copy(
                     isLoading = false,
-                    error = authResult.exceptionOrNull()?.message
+                    error = authResult.exceptionOrNull()?.message,
+                    loginReady = authResult.isSuccess
                 )
             }
         }
+    }
+
+    fun onLoginNavigationHandled() {
+        _uiState.update { it.copy(loginReady = false) }
     }
 
     /**

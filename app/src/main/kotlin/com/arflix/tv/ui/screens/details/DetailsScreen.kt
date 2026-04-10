@@ -120,6 +120,8 @@ import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.SkeletonDetailsPage
 import com.arflix.tv.ui.components.StreamSelector
 import com.arflix.tv.ui.components.TrailerPlayer
+import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.input.key.onKeyEvent
 import com.arflix.tv.ui.components.Toast
@@ -226,7 +228,7 @@ fun DetailsScreen(
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
-        suppressSelectUntilMs = SystemClock.elapsedRealtime() + 300L
+        suppressSelectUntilMs = SystemClock.elapsedRealtime() + 150L
     }
 
     LaunchedEffect(pendingAutoPlayRequest, uiState.isLoadingStreams, uiState.streams) {
@@ -413,9 +415,6 @@ fun DetailsScreen(
                             }
                         }
                         Key.Enter, Key.DirectionCenter -> {
-                            if (SystemClock.elapsedRealtime() < suppressSelectUntilMs) {
-                                return@onPreviewKeyEvent true
-                            }
                             if (!isSidebarFocused && focusedSection == FocusSection.SEASONS) {
                                 if (seasonSelectDownAtMs == 0L) {
                                     seasonSelectDownAtMs = SystemClock.elapsedRealtime()
@@ -705,17 +704,37 @@ fun DetailsScreen(
         
         // In-app Trailer Player (fullscreen overlay)
         if (showTrailerPlayer && uiState.trailerKey != null) {
+            BackHandler { showTrailerPlayer = false }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black)
                     .zIndex(50f)
+                    .clickable { showTrailerPlayer = false }
             ) {
                 TrailerPlayer(
                     youtubeKey = uiState.trailerKey!!,
                     modifier = Modifier.fillMaxSize(),
                     delayMs = 0L
                 )
+                // Close button for touch devices
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 48.dp, end = 16.dp)
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .clickable { showTrailerPlayer = false },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close trailer",
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
         }
 
@@ -1052,10 +1071,11 @@ private fun DetailsContent(
                 ) {
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Metadata row
+                    // Metadata row - horizontally scrollable to prevent clipping on narrow screens
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
                     ) {
                         Text(
                             text = genreText,
@@ -1296,6 +1316,37 @@ private fun DetailsContent(
                                 usePosterCards = usePosterCards,
                                 isFocused = false,
                                 onClick = { onSimilarClick(index) }
+                            )
+                        }
+                    }
+                }
+
+                // Reviews section
+                if (reviews.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                    ) {
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Text(
+                            text = "Reviews",
+                            style = ArvioSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                            color = Color.White.copy(alpha = 0.9f)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    LazyRow(
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        standardItemsIndexed(
+                            reviews,
+                            key = { index, r -> "mob_review_${r.author}_$index" }
+                        ) { index, review ->
+                            ReviewCard(
+                                review = review,
+                                isFocused = false
                             )
                         }
                     }
@@ -2178,11 +2229,8 @@ private fun PremiumActionButton(
 
     // Animated scale for focus
     val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.04f else 1f,
-        animationSpec = tween(
-            durationMillis = AnimationConstants.DURATION_FAST,
-            easing = AnimationConstants.EaseOut
-        ),
+        targetValue = if (isFocused) 1.05f else 1f,
+        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 400f),
         label = "button_scale"
     )
 
@@ -2281,11 +2329,8 @@ private fun EpisodeCard(
 
     val shape = rememberArvioCardShape(ArvioSkin.radius.md)
     val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.02f else 1f,
-        animationSpec = tween(
-            durationMillis = AnimationConstants.DURATION_FAST,
-            easing = AnimationConstants.EaseOut
-        ),
+        targetValue = if (isFocused) 1.03f else 1f,
+        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 400f),
         label = "episode_scale"
     )
     val borderWidth = if (isFocused || scale != 1f) 3.dp else 0.dp

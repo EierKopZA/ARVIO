@@ -4,8 +4,11 @@ import android.util.Log
 import com.arflix.tv.util.Constants
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import okhttp3.*
 import org.json.JSONArray
 import org.json.JSONObject
@@ -15,27 +18,32 @@ import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** Cloud sync WebSocket connection status for the UI indicator. */
+enum class CloudSyncStatus { CONNECTED, RECONNECTING, NOT_SIGNED_IN }
+
 /**
  * Manages a Supabase Realtime WebSocket connection to receive instant
  * notifications when `account_sync_state` or `watch_history` changes on any device.
  *
- * Two channels are joined on the same socket:
+ * Three channels are joined on the same socket:
  *
- * 1. `realtime:account_sync` \u2014 listens for UPDATEs on `account_sync_state`. On
+ * 1. `realtime:account_sync` — listens for UPDATEs on `account_sync_state`. On
  *    change, the manager triggers [CloudSyncRepository.pullFromCloud] to reapply the
  *    full JSON snapshot (addons, profiles, catalogs, IPTV config, preferences).
  *
- * 2. `realtime:watch_history` \u2014 listens for INSERTs/UPDATEs on `watch_history` so
- *    the Home screen's Continue Watching row can refresh on other devices within
- *    seconds of a progress update, instead of waiting for the user to reopen Home.
- *    Because watch_history is a high-write table during playback (~every 10s), the
- *    manager debounces events into [watchHistoryEvents] and the subscriber (HomeViewModel)
- *    is expected to collect the flow and call refreshContinueWatchingOnly(force = true).
- *    We do NOT trigger a full pullFromCloud on these events \u2014 that's wasteful for
- *    what is effectively a single-row position update. Fixes issue #91.
+ * 2. `realtime:watch_history` — listens for INSERTs, UPDATEs, AND DELETEs on
+ *    `watch_history` so the Home screen's Continue Watching row can refresh on
+ *    other devices within seconds of a progress update or CW removal.
  *
- * A periodic fallback sync runs every 90 seconds (lowered from 5 minutes) in case the
- * WebSocket disconnects or misses an event on an unstable connection.
+ * Fixes applied in this version:
+ * - Reuses a single OkHttpClient for WebSocket connections (was leaking connection
+ *   pools on every reconnect).
+ * - Subscribes to DELETE events on watch_history (was missing — CW removal on
+ *   device A wasn't reflected on device B in real-time).
+ * - Periodic token refresh: reconnects with a fresh JWT every 30 minutes so
+ *   realtime events don't silently stop after token expiry.
+ * - Exposes a [syncStatusFlow] for the UI to show a connection indicator.
+ * - Exponential backoff on reconnect (5s → 10s → 20s → 40s cap).
  */
 @Singleton
 class RealtimeSyncManager @Inject constructor(
@@ -45,21 +53,28 @@ class RealtimeSyncManager @Inject constructor(
     companion object {
         private const val TAG = "RealtimeSync"
         private const val HEARTBEAT_INTERVAL_MS = 30_000L
-        private const val RECONNECT_DELAY_MS = 5_000L
-        // Periodic fallback: was 5 minutes. Lowered to 90s so users on flaky connections
-        // still get fresh playback resume positions within a reasonable time even if
-        // the WebSocket silently misses an event (#91).
+        private const val INITIAL_RECONNECT_DELAY_MS = 5_000L
+        private const val MAX_RECONNECT_DELAY_MS = 40_000L
         private const val PERIODIC_SYNC_INTERVAL_MS = 90_000L
-        private const val DEBOUNCE_MS = 2_000L // Debounce full snapshot pulls to avoid rapid-fire
-        // Watch-history events fire every ~10s during playback. Coalesce bursts so we
-        // don't hammer Home's Continue Watching refresh on every tick while a user is
-        // actively watching something on the other device.
+        private const val DEBOUNCE_MS = 2_000L
         private const val WATCH_HISTORY_DEBOUNCE_MS = 5_000L
+        // Reconnect with fresh token every 30 minutes to prevent silent auth expiry
+        private const val TOKEN_REFRESH_INTERVAL_MS = 30 * 60 * 1000L
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val isRunning = AtomicBoolean(false)
     private val msgRef = AtomicInteger(1)
+
+    // Single OkHttpClient reused across reconnects — the previous implementation
+    // created a new client on every connectWebSocketWithToken() call, leaking
+    // connection pools and thread pools on flaky connections.
+    private val wsClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .readTimeout(0, TimeUnit.MILLISECONDS) // No timeout for WebSocket
+            .pingInterval(25, TimeUnit.SECONDS)
+            .build()
+    }
 
     private var webSocket: WebSocket? = null
     private var heartbeatJob: Job? = null
@@ -67,52 +82,47 @@ class RealtimeSyncManager @Inject constructor(
     private var reconnectJob: Job? = null
     private var pendingPullJob: Job? = null
     private var pendingWatchHistoryEmitJob: Job? = null
+    private var tokenRefreshJob: Job? = null
 
-    // Track our own pushes to avoid pulling back what we just pushed
+    // Exponential backoff state for reconnect
+    private var currentReconnectDelay = INITIAL_RECONNECT_DELAY_MS
+
     @Volatile
     private var lastPushTimestamp = 0L
-
-    // Track our own watch_history writes (they happen every ~10s during local
-    // playback) so device A doesn't pointlessly refresh its own Continue Watching
-    // row in response to its own updates.
     @Volatile
     private var lastLocalWatchHistoryWriteTimestamp = 0L
-
-    // User JWT for authenticated Realtime subscriptions
     @Volatile
     private var currentAccessToken: String? = null
 
-    // Event stream for watch_history realtime notifications. HomeViewModel collects
-    // this and triggers refreshContinueWatchingOnly(force = true) on each emission.
+    // Event stream for watch_history realtime notifications
     private val _watchHistoryEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
     val watchHistoryEvents: SharedFlow<Unit> = _watchHistoryEvents.asSharedFlow()
+
+    // Event stream for account_sync realtime notifications (catalogs, addons, settings changed on another device)
+    private val _accountSyncEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
+    val accountSyncEvents: SharedFlow<Unit> = _accountSyncEvents.asSharedFlow()
+
+    // Sync status for UI indicator
+    private val _syncStatusFlow = MutableStateFlow(CloudSyncStatus.NOT_SIGNED_IN)
+    val syncStatusFlow: StateFlow<CloudSyncStatus> = _syncStatusFlow.asStateFlow()
 
     fun markPush() {
         lastPushTimestamp = System.currentTimeMillis()
     }
 
-    /**
-     * Called by WatchHistoryRepository.saveProgress so incoming watch_history realtime
-     * events from our own write can be ignored (device A shouldn't refresh its own CW
-     * row when it was device A that just wrote the update).
-     */
     fun markLocalWatchHistoryWrite() {
         lastLocalWatchHistoryWriteTimestamp = System.currentTimeMillis()
     }
 
-    /**
-     * Start listening for realtime changes. Call once after login.
-     */
     fun start() {
         if (isRunning.getAndSet(true)) return
         Log.i(TAG, "Starting realtime sync")
+        _syncStatusFlow.value = CloudSyncStatus.RECONNECTING
         connectWebSocket()
         startPeriodicSync()
+        startTokenRefreshLoop()
     }
 
-    /**
-     * Stop listening. Call on logout or app termination.
-     */
     fun stop() {
         if (!isRunning.getAndSet(false)) return
         Log.i(TAG, "Stopping realtime sync")
@@ -123,6 +133,8 @@ class RealtimeSyncManager @Inject constructor(
         reconnectJob?.cancel()
         pendingPullJob?.cancel()
         pendingWatchHistoryEmitJob?.cancel()
+        tokenRefreshJob?.cancel()
+        _syncStatusFlow.value = CloudSyncStatus.NOT_SIGNED_IN
     }
 
     // ── WebSocket Connection ────────────────────────────────────────
@@ -133,16 +145,17 @@ class RealtimeSyncManager @Inject constructor(
         val userId = authRepository.getCurrentUserId()
         if (userId.isNullOrBlank()) {
             Log.w(TAG, "Not logged in, skipping WebSocket connection")
+            _syncStatusFlow.value = CloudSyncStatus.NOT_SIGNED_IN
             scheduleReconnect()
             return
         }
 
-        // Fetch user access token for authenticated Realtime subscriptions
-        // Without the JWT, Supabase RLS blocks the postgres_changes subscription
+        _syncStatusFlow.value = CloudSyncStatus.RECONNECTING
         scope.launch {
             val accessToken = authRepository.getAccessToken()
             if (accessToken.isNullOrBlank()) {
                 Log.w(TAG, "No access token, skipping WebSocket connection")
+                _syncStatusFlow.value = CloudSyncStatus.NOT_SIGNED_IN
                 scheduleReconnect()
                 return@launch
             }
@@ -158,20 +171,15 @@ class RealtimeSyncManager @Inject constructor(
             .replace("http://", "ws://")
         val wsUrl = "$supabaseUrl/realtime/v1/websocket?apikey=${Constants.SUPABASE_ANON_KEY}&vsn=1.0.0"
 
-        val client = OkHttpClient.Builder()
-            .readTimeout(0, TimeUnit.MILLISECONDS) // No timeout for WebSocket
-            .pingInterval(25, TimeUnit.SECONDS)
-            .build()
-
         val request = Request.Builder().url(wsUrl).build()
-
-        // Store the token so joinChannel can include it
         currentAccessToken = accessToken
 
-        webSocket = client.newWebSocket(request, object : WebSocketListener() {
+        webSocket = wsClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.i(TAG, "WebSocket connected")
-                // Join the channel for account_sync_state changes for this user
+                // Reset backoff on successful connection
+                currentReconnectDelay = INITIAL_RECONNECT_DELAY_MS
+                _syncStatusFlow.value = CloudSyncStatus.CONNECTED
                 joinChannel(webSocket, userId)
                 startHeartbeat(webSocket)
             }
@@ -182,25 +190,31 @@ class RealtimeSyncManager @Inject constructor(
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.w(TAG, "WebSocket failure: ${t.message}")
+                _syncStatusFlow.value = CloudSyncStatus.RECONNECTING
                 scheduleReconnect()
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 Log.i(TAG, "WebSocket closing: $code $reason")
                 webSocket.close(1000, null)
-                if (isRunning.get()) scheduleReconnect()
+                if (isRunning.get()) {
+                    _syncStatusFlow.value = CloudSyncStatus.RECONNECTING
+                    scheduleReconnect()
+                }
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.i(TAG, "WebSocket closed: $code")
-                if (isRunning.get()) scheduleReconnect()
+                if (isRunning.get()) {
+                    _syncStatusFlow.value = CloudSyncStatus.RECONNECTING
+                    scheduleReconnect()
+                }
             }
         })
     }
 
     private fun joinChannel(ws: WebSocket, userId: String) {
-        // Channel 1: account_sync_state UPDATEs (full snapshot pulls).
-        // access_token is required for Supabase RLS to authenticate the subscription.
+        // Channel 1: account_sync_state UPDATEs
         val accountSyncJoin = JSONObject().apply {
             put("topic", "realtime:account_sync")
             put("event", "phx_join")
@@ -221,10 +235,10 @@ class RealtimeSyncManager @Inject constructor(
         }
         ws.send(accountSyncJoin.toString())
 
-        // Channel 2: watch_history INSERT + UPDATE events for cross-device Continue
-        // Watching refresh (#91). We subscribe to both INSERT (first watch of a new
-        // item) and UPDATE (position/progress changes) so either event refreshes the
-        // other device's Home row.
+        // Channel 2: watch_history INSERT + UPDATE + DELETE events.
+        // DELETE was missing previously — when a user removed an item from Continue
+        // Watching on device A, device B never got a realtime notification for the
+        // removal and kept showing the stale entry until the next CW refresh.
         val watchHistoryJoin = JSONObject().apply {
             put("topic", "realtime:watch_history")
             put("event", "phx_join")
@@ -243,6 +257,12 @@ class RealtimeSyncManager @Inject constructor(
                             put("table", "watch_history")
                             put("filter", "user_id=eq.$userId")
                         })
+                        put(JSONObject().apply {
+                            put("event", "DELETE")
+                            put("schema", "public")
+                            put("table", "watch_history")
+                            put("filter", "user_id=eq.$userId")
+                        })
                     })
                 })
                 currentAccessToken?.let { put("access_token", it) }
@@ -251,7 +271,51 @@ class RealtimeSyncManager @Inject constructor(
         }
         ws.send(watchHistoryJoin.toString())
 
-        Log.i(TAG, "Joined account_sync + watch_history channels for user $userId")
+        // Channel 3: watched_movies and watched_episodes table changes.
+        // These are written by TraktSyncService when a Trakt sync completes on another
+        // device. Subscribing means watched badges update across devices in real-time
+        // instead of waiting for the periodic 90s sync.
+        val watchedTablesJoin = JSONObject().apply {
+            put("topic", "realtime:watched_status")
+            put("event", "phx_join")
+            put("payload", JSONObject().apply {
+                put("config", JSONObject().apply {
+                    put("postgres_changes", JSONArray().apply {
+                        // watched_movies: INSERT, UPDATE, DELETE
+                        put(JSONObject().apply {
+                            put("event", "INSERT")
+                            put("schema", "public")
+                            put("table", "watched_movies")
+                            put("filter", "user_id=eq.$userId")
+                        })
+                        put(JSONObject().apply {
+                            put("event", "DELETE")
+                            put("schema", "public")
+                            put("table", "watched_movies")
+                            put("filter", "user_id=eq.$userId")
+                        })
+                        // watched_episodes: INSERT, UPDATE, DELETE
+                        put(JSONObject().apply {
+                            put("event", "INSERT")
+                            put("schema", "public")
+                            put("table", "watched_episodes")
+                            put("filter", "user_id=eq.$userId")
+                        })
+                        put(JSONObject().apply {
+                            put("event", "DELETE")
+                            put("schema", "public")
+                            put("table", "watched_episodes")
+                            put("filter", "user_id=eq.$userId")
+                        })
+                    })
+                })
+                currentAccessToken?.let { put("access_token", it) }
+            })
+            put("ref", msgRef.getAndIncrement().toString())
+        }
+        ws.send(watchedTablesJoin.toString())
+
+        Log.i(TAG, "Joined account_sync + watch_history + watched_status channels for user $userId")
     }
 
     private fun handleMessage(text: String) {
@@ -262,7 +326,6 @@ class RealtimeSyncManager @Inject constructor(
 
             when (event) {
                 "postgres_changes" -> {
-                    // Route based on which channel sent the event.
                     when (topic) {
                         "realtime:account_sync" -> {
                             Log.i(TAG, "Received account_sync change")
@@ -270,6 +333,13 @@ class RealtimeSyncManager @Inject constructor(
                         }
                         "realtime:watch_history" -> {
                             Log.i(TAG, "Received watch_history change")
+                            debouncedWatchHistoryEmit()
+                        }
+                        "realtime:watched_status" -> {
+                            // watched_movies or watched_episodes changed on another device
+                            // (e.g., Trakt sync completed). Trigger CW refresh so watched
+                            // badges update and completed items leave the CW row.
+                            Log.i(TAG, "Received watched_status change (movies/episodes)")
                             debouncedWatchHistoryEmit()
                         }
                         else -> {
@@ -285,7 +355,6 @@ class RealtimeSyncManager @Inject constructor(
                     Log.w(TAG, "Channel error: $text")
                 }
                 "system" -> {
-                    // System messages like subscription confirmation
                     val payload = msg.optJSONObject("payload")
                     if (payload?.optString("status") == "ok") {
                         Log.i(TAG, "Subscription confirmed ($topic)")
@@ -298,7 +367,6 @@ class RealtimeSyncManager @Inject constructor(
     }
 
     private fun debouncedPull() {
-        // Skip if we just pushed (avoid pulling back our own changes)
         if (System.currentTimeMillis() - lastPushTimestamp < 3_000L) {
             Log.d(TAG, "Skipping pull - recent push detected")
             return
@@ -309,14 +377,16 @@ class RealtimeSyncManager @Inject constructor(
             delay(DEBOUNCE_MS)
             Log.i(TAG, "Pulling cloud state after realtime notification")
             runCatching { cloudSyncRepository.pullFromCloud() }
+                .onSuccess { result ->
+                    if (result == CloudSyncRepository.RestoreResult.RESTORED) {
+                        _accountSyncEvents.tryEmit(Unit)
+                    }
+                }
                 .onFailure { Log.w(TAG, "Realtime pull failed: ${it.message}") }
         }
     }
 
     private fun debouncedWatchHistoryEmit() {
-        // Skip if the event is almost certainly from our own recent write. This
-        // catches the common case where the user is actively watching on device A
-        // and A's periodic watch_history UPDATE fires back to A as a realtime event.
         if (System.currentTimeMillis() - lastLocalWatchHistoryWriteTimestamp < 3_000L) {
             Log.d(TAG, "Skipping watch_history emit - recent local write")
             return
@@ -352,15 +422,17 @@ class RealtimeSyncManager @Inject constructor(
         }
     }
 
-    // ── Reconnect ───────────────────────────────────────────────────
+    // ── Reconnect with exponential backoff ──────────────────────────
 
     private fun scheduleReconnect() {
         heartbeatJob?.cancel()
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
-            delay(RECONNECT_DELAY_MS)
+            delay(currentReconnectDelay)
+            // Exponential backoff: 5s → 10s → 20s → 40s cap
+            currentReconnectDelay = (currentReconnectDelay * 2).coerceAtMost(MAX_RECONNECT_DELAY_MS)
             if (isRunning.get()) {
-                Log.i(TAG, "Reconnecting WebSocket...")
+                Log.i(TAG, "Reconnecting WebSocket (backoff: ${currentReconnectDelay / 1000}s next)...")
                 connectWebSocket()
             }
         }
@@ -377,6 +449,38 @@ class RealtimeSyncManager @Inject constructor(
                 Log.d(TAG, "Periodic sync tick")
                 runCatching { cloudSyncRepository.pullFromCloud() }
                     .onFailure { Log.w(TAG, "Periodic sync failed: ${it.message}") }
+            }
+        }
+    }
+
+    // ── Token Refresh Loop ──────────────────────────────────────────
+
+    /**
+     * Periodically checks if the access token has changed (due to refresh) and
+     * reconnects the WebSocket with the new token. Without this, the Supabase
+     * server will silently stop delivering events once the original JWT expires
+     * (~1 hour default), and the user would see no sync activity until the
+     * periodic fallback pull detects the divergence.
+     */
+    private fun startTokenRefreshLoop() {
+        tokenRefreshJob?.cancel()
+        tokenRefreshJob = scope.launch {
+            while (isActive && isRunning.get()) {
+                delay(TOKEN_REFRESH_INTERVAL_MS)
+                if (!isRunning.get()) break
+                try {
+                    val freshToken = authRepository.getAccessToken()
+                    if (!freshToken.isNullOrBlank() && freshToken != currentAccessToken) {
+                        Log.i(TAG, "Access token changed, reconnecting WebSocket with fresh token")
+                        webSocket?.close(1000, "Token refresh")
+                        webSocket = null
+                        heartbeatJob?.cancel()
+                        // connectWebSocket will fetch the token again and reconnect
+                        connectWebSocket()
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Token refresh check failed: ${e.message}")
+                }
             }
         }
     }

@@ -111,7 +111,7 @@ fun SearchScreen(
     val configuration = LocalConfiguration.current
     val isCompactHeight = configuration.screenHeightDp <= 780
     val isTouchDevice = LocalDeviceType.current.isTouchDevice()
-    val searchBarWidth = if (isTouchDevice) (configuration.screenWidthDp.dp * 0.9f).coerceIn(280.dp, 760.dp)
+    val searchBarWidth = if (isTouchDevice) configuration.screenWidthDp.dp - 24.dp
         else (configuration.screenWidthDp.dp * 0.56f).coerceIn(500.dp, 760.dp)
 
     val hasSearchResults = uiState.movieResults.isNotEmpty() || uiState.tvResults.isNotEmpty()
@@ -156,7 +156,7 @@ fun SearchScreen(
         }
     }
     
-    LaunchedEffect(Unit) { searchFocusRequester.requestFocus(); suppressSelectUntilMs = SystemClock.elapsedRealtime() + 300L }
+    LaunchedEffect(Unit) { searchFocusRequester.requestFocus(); suppressSelectUntilMs = SystemClock.elapsedRealtime() + 150L }
 
     val showFilters = uiState.query.isEmpty()
 
@@ -228,7 +228,6 @@ fun SearchScreen(
                     else -> false
                 }
                 Key.Enter, Key.DirectionCenter -> {
-                    if (SystemClock.elapsedRealtime() < suppressSelectUntilMs) return@onPreviewKeyEvent true
                     when (focusZone) {
                         FocusZone.SIDEBAR -> {
                             if (hasProfile && sidebarFocusIndex == 0) onSwitchProfile()
@@ -257,7 +256,7 @@ fun SearchScreen(
     Box(modifier = Modifier.fillMaxSize().background(BackgroundDark).then(dpadModifier)) {
         if (!isTouchDevice) AppTopBar(selectedItem = SidebarItem.SEARCH, isFocused = focusZone == FocusZone.SIDEBAR, focusedIndex = sidebarFocusIndex, profile = currentProfile)
 
-        Column(modifier = Modifier.fillMaxSize().padding(top = AppTopBarContentTopInset).padding(horizontal = if (isCompactHeight) 20.dp else 28.dp)) {
+        Column(modifier = Modifier.fillMaxSize().padding(top = if (isTouchDevice) 16.dp else AppTopBarContentTopInset).padding(horizontal = if (isTouchDevice) 12.dp else if (isCompactHeight) 20.dp else 28.dp)) {
             // ── Search Bar ──
             Box(modifier = Modifier.fillMaxWidth().padding(bottom = if (isCompactHeight) 3.dp else 5.dp), contentAlignment = Alignment.Center) {
                 if (isTouchDevice) {
@@ -391,8 +390,14 @@ private fun RowsLayer(
     val configuration = LocalConfiguration.current
     val screenHeight = configuration.screenHeightDp
 
-    val itemWidth = if (usePosterCards) 134.dp else 260.dp
-    val rowHeight = if (usePosterCards) {
+    val itemWidth = if (isTouchDevice) {
+        if (usePosterCards) 110.dp else 170.dp
+    } else {
+        if (usePosterCards) 134.dp else 260.dp
+    }
+    val rowHeight = if (isTouchDevice) {
+        if (usePosterCards) 220.dp else 160.dp
+    } else if (usePosterCards) {
         if (screenHeight <= 640) 245.dp else 320.dp
     } else {
         if (screenHeight <= 640) 200.dp else 260.dp

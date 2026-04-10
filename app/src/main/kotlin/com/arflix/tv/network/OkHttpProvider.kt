@@ -289,10 +289,23 @@ object OkHttpProvider {
         }
 
     private fun buildCoilClient(): OkHttpClient {
-        val builder = client.newBuilder()
-        builder.interceptors().remove(apiDnsLoggingInterceptor)
-        builder.dns(dns)
-        return builder.build()
+        // Build a dedicated image client with its OWN connection pool and aggressive
+        // timeouts. The previous implementation shared the main API client's connection
+        // pool (30s timeouts), which meant:
+        // 1. A slow TMDB API call could exhaust the shared pool's max-idle connections,
+        //    blocking image loads entirely until an API call finished.
+        // 2. If image.tmdb.org DNS failed, Coil waited the full 30s connect timeout
+        //    per card — on a home screen with 20+ cards, the entire grid appeared frozen.
+        // The image CDN (image.tmdb.org) is a fast static-asset CDN that should respond
+        // in <500ms; anything longer is a network issue that retrying later will fix.
+        return OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
+            .connectionPool(ConnectionPool(8, 30, TimeUnit.SECONDS))
+            .dns(dns)
+            .retryOnConnectionFailure(true)
+            .build()
     }
 
     fun createCoilImageLoader(context: Context): ImageLoader {

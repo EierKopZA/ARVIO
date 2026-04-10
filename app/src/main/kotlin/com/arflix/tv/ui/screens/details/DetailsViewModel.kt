@@ -245,6 +245,12 @@ class DetailsViewModel @Inject constructor(
                 }
                 val cachedItem = mediaRepository.getCachedItem(mediaType, mediaId)
                 val initialItem = cachedItem ?: previousItem
+                val cachedLogoUrl = mediaRepository.peekCachedLogoUrl(mediaType, mediaId)
+                    ?: previousState.logoUrl?.takeIf { previousMatches }
+                val cachedEpisodes = if (mediaType == MediaType.TV) {
+                    mediaRepository.peekCachedSeasonEpisodes(mediaId, seasonToLoad)
+                        ?: previousState.episodes.takeIf { previousMatches && previousState.currentSeason == seasonToLoad }
+                } else null
                 val cachedTotalSeasons = if (mediaType == MediaType.TV) {
                     initialItem?.totalEpisodes?.coerceAtLeast(1) ?: 1
                 } else {
@@ -254,6 +260,8 @@ class DetailsViewModel @Inject constructor(
                 _uiState.value = DetailsUiState(
                     isLoading = initialItem == null,
                     item = initialItem,
+                    logoUrl = cachedLogoUrl,
+                    episodes = cachedEpisodes ?: emptyList(),
                     currentSeason = seasonToLoad,
                     totalSeasons = cachedTotalSeasons,
                     playSeason = initialSeason,
@@ -412,7 +420,7 @@ class DetailsViewModel @Inject constructor(
 
                 launch {
                     val logoUrl = runCatching { logoDeferred.await() }.getOrNull()
-                    if (logoUrl != null) {
+                    if (logoUrl != null && logoUrl != _uiState.value.logoUrl) {
                         updateState { state -> state.copy(logoUrl = logoUrl) }
                     }
                 }
@@ -478,7 +486,7 @@ class DetailsViewModel @Inject constructor(
 
                 launch {
                     val episodes = runCatching { episodesDeferred?.await() }.getOrNull()
-                    if (!episodes.isNullOrEmpty()) {
+                    if (!episodes.isNullOrEmpty() && episodes != _uiState.value.episodes) {
                         val resumeTarget = runCatching { resumeDeferred.await() }.getOrNull()
                         val fallbackTargetSeason = initialSeason ?: resumeTarget?.season
                         val fallbackTargetEpisode = initialEpisode ?: resumeTarget?.episode
@@ -1285,6 +1293,9 @@ class DetailsViewModel @Inject constructor(
                 }
                 _uiState.value = _uiState.value.copy(episodes = updatedEpisodes)
                 runCatching { launcherContinueWatchingRepository.refreshForCurrentProfile() }
+                // Push cloud snapshot so other devices see the episode watched-status
+                // change and the updated Continue Watching entry.
+                runCatching { cloudSyncRepository.pushToCloud() }
             } catch (e: Exception) {
                 // Failed silently
             }
@@ -1384,6 +1395,9 @@ class DetailsViewModel @Inject constructor(
                     toastType = ToastType.SUCCESS
                 )
                 runCatching { launcherContinueWatchingRepository.refreshForCurrentProfile() }
+                // Push cloud snapshot so other devices see the entire season marked watched
+                // and the updated Continue Watching entry pointing to the next unwatched episode.
+                runCatching { cloudSyncRepository.pushToCloud() }
             } catch (_: Exception) {
                 _uiState.value = _uiState.value.copy(
                     toastMessage = "Failed to mark season as watched",

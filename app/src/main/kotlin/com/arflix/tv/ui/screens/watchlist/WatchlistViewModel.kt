@@ -182,6 +182,10 @@ class WatchlistViewModel @Inject constructor(
                 if (addedNew) {
                     val items = watchlistRepository.refreshWatchlistItems()
                     _uiState.value = _uiState.value.copy(items = items, isLoading = false)
+                    // Push cloud snapshot so other devices get the merged watchlist.
+                    // Without this, Trakt items merged on device A never synced to device B
+                    // until some other action triggered a push.
+                    runCatching { cloudSyncRepository.pushToCloud() }
                 }
             } catch (_: Exception) {
                 // Trakt sync is best-effort, don't show errors

@@ -43,6 +43,15 @@ class CloudSyncRepository @Inject constructor(
     /** Callback invoked after a successful push so realtime listeners can skip the echo. */
     var onPushCompleted: (() -> Unit)? = null
 
+    /**
+     * Dirty flag: set to true when a push fails, cleared on next successful push.
+     * Callers (HomeViewModel.pullCloudStateOnResume, RealtimeSyncManager periodic sync)
+     * can check this and retry the push so failed pushes aren't permanently lost.
+     */
+    @Volatile
+    var isPushDirty: Boolean = false
+        private set
+
     enum class RestoreResult { RESTORED, NO_BACKUP, FAILED }
 
     // ── Data class for per-profile settings stored in cloud ──
@@ -59,6 +68,7 @@ class CloudSyncRepository @Inject constructor(
         val autoPlaySingleSource: Boolean = true,
         val autoPlayMinQuality: String = "Any",
         val trailerAutoPlay: Boolean = false,
+        val clockFormat: String = "24h",
         val showBudget: Boolean = true,
         val volumeBoostDb: Int = 0,
         val includeSpecials: Boolean = false,
@@ -72,6 +82,8 @@ class CloudSyncRepository @Inject constructor(
         profileManager.profileStringKeyFor(profileId, "content_language")
     private fun trailerAutoPlayKeyFor(profileId: String) =
         profileManager.profileBooleanKeyFor(profileId, "trailer_auto_play")
+    private fun clockFormatKeyFor(profileId: String) =
+        profileManager.profileStringKeyFor(profileId, "clock_format")
     private fun showBudgetKeyFor(profileId: String) =
         profileManager.profileBooleanKeyFor(profileId, "show_budget_on_home")
     private fun volumeBoostDbKeyFor(profileId: String) =
@@ -157,6 +169,7 @@ class CloudSyncRepository @Inject constructor(
                         contentLanguage = prefs[contentLanguageKeyFor(profile.id)] ?: "en-US",
 
                         trailerAutoPlay = prefs[trailerAutoPlayKeyFor(profile.id)] ?: false,
+                        clockFormat = prefs[clockFormatKeyFor(profile.id)] ?: "24h",
                         showBudget = prefs[showBudgetKeyFor(profile.id)] ?: true,
                         volumeBoostDb = prefs[volumeBoostDbKeyFor(profile.id)]?.toIntOrNull()?.coerceIn(0, 15) ?: 0,
                         subtitleSize = prefs[subtitleSizeKeyFor(profile.id)] ?: "Medium",
@@ -299,10 +312,19 @@ class CloudSyncRepository @Inject constructor(
             return Result.failure(IllegalStateException("Not logged in"))
         }
         val payload = runCatching { buildCloudSnapshotJson() }.getOrElse {
+            isPushDirty = true
             return Result.failure(it)
         }
         val result = authRepository.saveAccountSyncPayload(payload)
-        if (result.isSuccess) onPushCompleted?.invoke()
+        if (result.isSuccess) {
+            isPushDirty = false
+            onPushCompleted?.invoke()
+        } else {
+            // Mark dirty so the next ON_RESUME or periodic sync retries the push.
+            // Without this, a single network hiccup would permanently diverge the
+            // cloud state until the user explicitly changes another setting.
+            isPushDirty = true
+        }
         return result
     }
 
@@ -378,6 +400,7 @@ class CloudSyncRepository @Inject constructor(
                         prefs[contentLanguageKeyFor(profileId)] = state.contentLanguage
 
                         prefs[trailerAutoPlayKeyFor(profileId)] = state.trailerAutoPlay
+                        prefs[clockFormatKeyFor(profileId)] = state.clockFormat
                         prefs[showBudgetKeyFor(profileId)] = state.showBudget
                         prefs[volumeBoostDbKeyFor(profileId)] = state.volumeBoostDb.coerceIn(0, 15).toString()
                         prefs[subtitleSizeKeyFor(profileId)] = state.subtitleSize
@@ -542,10 +565,37 @@ class CloudSyncRepository @Inject constructor(
             traktRepository.importDismissedContinueWatchingForProfiles(map)
         }
 
+        // Only import local CW for profiles that DON'T have Trakt connected.
+        // For Trakt profiles, CW is sourced exclusively from Trakt's progress API.
+        // The previous code imported local CW unconditionally, which meant every
+        // show ever partially watched in ARVIO (written to cloud by
+        // saveLocalContinueWatching during playback) got restored to local DataStore
+        // on cloud pull — polluting the CW row with non-Trakt items that persisted
+        // even after app reinstall.
+        // Only import local CW for profiles that DON'T have Trakt connected.
+        // For Trakt profiles, CW is sourced exclusively from Trakt's progress API.
+        // Only import local CW for profiles that DON'T have Trakt connected.
+        // For Trakt profiles, CW is sourced exclusively from Trakt's progress API.
         root.optJSONObject("localContinueWatchingByProfile")?.toString()?.takeIf { it.isNotBlank() }?.let { json ->
             val type = object : TypeToken<Map<String, List<ContinueWatchingItem>>>() {}.type
             val map: Map<String, List<ContinueWatchingItem>> = gson.fromJson(json, type) ?: emptyMap()
-            traktRepository.importLocalContinueWatchingForProfiles(map)
+            // Check the cloud snapshot itself for Trakt tokens to identify Trakt profiles
+            val traktTokensJson = root.optJSONObject("traktTokensByProfile")
+            val traktProfiles = mutableSetOf<String>()
+            traktTokensJson?.keys()?.forEach { profileId ->
+                val token = traktTokensJson.optString(profileId, "")
+                if (token.isNotBlank()) traktProfiles.add(profileId)
+            }
+            // Also check isAuthenticated via the repository for the active profile
+            val isActiveProfileTrakt = runCatching { traktRepository.isAuthenticated.first() }.getOrDefault(false)
+            val activeProfileId = profileManager.getProfileIdSync()
+            if (isActiveProfileTrakt && activeProfileId != null) {
+                traktProfiles.add(activeProfileId)
+            }
+            val nonTraktOnly = map.filterKeys { it !in traktProfiles }
+            if (nonTraktOnly.isNotEmpty()) {
+                traktRepository.importLocalContinueWatchingForProfiles(nonTraktOnly)
+            }
         }
 
         root.optJSONObject("localWatchedMoviesByProfile")?.toString()?.takeIf { it.isNotBlank() }?.let { json ->
