@@ -13,12 +13,14 @@ import com.arflix.tv.data.model.AddonResource
 import com.arflix.tv.data.model.AddonStreamResult
 import com.arflix.tv.data.model.AddonType
 import com.arflix.tv.data.model.MediaType
+import com.arflix.tv.data.model.QualityFilterConfig
 import com.arflix.tv.data.model.ProxyHeaders as ModelProxyHeaders
 import com.arflix.tv.data.model.StreamBehaviorHints as ModelStreamBehaviorHints
 import com.arflix.tv.data.model.StreamSource
 import com.arflix.tv.data.model.Subtitle
 import com.arflix.tv.util.AnimeMapper
 import com.arflix.tv.util.Constants
+import com.arflix.tv.util.settingsDataStore
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -100,6 +102,7 @@ class StreamRepository @Inject constructor(
     private fun hiddenBuiltInAddonsKey() = profileManager.profileStringKey("hidden_builtin_addons_v1")
     private fun torrServerBaseUrlKey() = profileManager.profileStringKey("torrserver_base_url_v1")
     private fun addonHealthKeyFor(profileId: String) = profileManager.profileStringKeyFor(profileId, "addon_health_v1")
+    private val qualityFiltersKey = stringPreferencesKey("quality_filters")
 
     init {
         repositoryScope.launch {
@@ -919,7 +922,7 @@ class StreamRepository @Inject constructor(
 
         val prioritizedAddons = streamAddons.sortedByDescending { getAddonHealthBias(it.id) }
         val streamJobs = prioritizedAddons.map { addon -> async { fetchMovieStreamsFromAddon(addon, imdbId) } }
-        val streams = streamJobs.awaitAll().flatten().toMutableList()
+        val streams = applyQualityRegexFilters(streamJobs.awaitAll().flatten())
 
         // Keep core source lookup fully addon-driven and non-blocking.
         // IPTV VOD enrichment is appended separately in ViewModels.
@@ -979,13 +982,14 @@ class StreamRepository @Inject constructor(
                                 u.isNotBlank() && !u.startsWith("magnet:", ignoreCase = true)
                             }
                             .distinctBy { "${it.url?.trim().orEmpty()}|${it.source}" }
+                        val filtered = applyQualityRegexFilters(deduped)
                         if (completed == prioritizedAddons.size) {
-                            val finalResult = StreamResult(deduped, emptyList())
+                            val finalResult = StreamResult(filtered, emptyList())
                             synchronized(streamResultCache) {
                                 streamResultCache[cacheKey] = CachedStreamResult(finalResult, System.currentTimeMillis())
                             }
                         }
-                        ProgressiveStreamResult(deduped, emptyList(), completed, prioritizedAddons.size, completed == prioritizedAddons.size)
+                        ProgressiveStreamResult(filtered, emptyList(), completed, prioritizedAddons.size, completed == prioritizedAddons.size)
                     }
                     trySend(emission)
                     if (emission.isFinal) close()
@@ -1189,7 +1193,7 @@ class StreamRepository @Inject constructor(
                 )
             }
         }
-        val streams = streamJobs.awaitAll().flatten().toMutableList()
+        val streams = applyQualityRegexFilters(streamJobs.awaitAll().flatten())
 
         // Keep core source lookup fully addon-driven and non-blocking.
         // IPTV VOD enrichment is appended separately in ViewModels.
@@ -1268,13 +1272,14 @@ class StreamRepository @Inject constructor(
                                 u.isNotBlank() && !u.startsWith("magnet:", ignoreCase = true)
                             }
                             .distinctBy { "${it.url?.trim().orEmpty()}|${it.source}" }
+                        val filtered = applyQualityRegexFilters(deduped)
                         if (completed == prioritizedAddons.size) {
-                            val finalResult = StreamResult(deduped, emptyList())
+                            val finalResult = StreamResult(filtered, emptyList())
                             synchronized(streamResultCache) {
                                 streamResultCache[cacheKey] = CachedStreamResult(finalResult, System.currentTimeMillis())
                             }
                         }
-                        ProgressiveStreamResult(deduped, emptyList(), completed, prioritizedAddons.size, completed == prioritizedAddons.size)
+                        ProgressiveStreamResult(filtered, emptyList(), completed, prioritizedAddons.size, completed == prioritizedAddons.size)
                     }
                     trySend(emission)
                     if (emission.isFinal) close()
@@ -2016,6 +2021,41 @@ class StreamRepository @Inject constructor(
             "urd", "urdu" -> "ur"
             "pob" -> "pt"  // "Portuguese (BR)" used by OpenSubtitles
             else -> if (lower.length >= 2) lower.take(2) else lower
+        }
+    }
+
+    private suspend fun applyQualityRegexFilters(streams: List<StreamSource>): List<StreamSource> {
+        if (streams.isEmpty()) return streams
+
+        val activeFilters = runCatching {
+            val json = context.settingsDataStore.data.first()[qualityFiltersKey].orEmpty()
+            if (json.isBlank()) {
+                emptyList<QualityFilterConfig>()
+            } else {
+                gson.fromJson<List<QualityFilterConfig>>(
+                    json,
+                    object : TypeToken<List<QualityFilterConfig>>() {}.type
+                ).orEmpty()
+                    .filter { it.enabled && it.regexPattern.isNotBlank() }
+            }
+        }.getOrDefault(emptyList())
+
+        if (activeFilters.isEmpty()) return streams
+
+        val compiledRegex = activeFilters.mapNotNull { filter ->
+            runCatching { Regex(filter.regexPattern, RegexOption.IGNORE_CASE) }.getOrNull()
+        }
+        if (compiledRegex.isEmpty()) return streams
+
+        return streams.filter { stream ->
+            val qualityText = buildString {
+                append(stream.quality)
+                if (stream.source.isNotBlank()) {
+                    append(' ')
+                    append(stream.source)
+                }
+            }
+            compiledRegex.none { regex -> regex.containsMatchIn(qualityText) }
         }
     }
 }
