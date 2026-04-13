@@ -3703,11 +3703,34 @@ private fun CloudstreamPluginPickerModal(
 ) {
     var focusedIndex by remember { mutableIntStateOf(0) }
     var focusedAction by remember { mutableIntStateOf(0) } // 0 = primary action, 1 = remove
+    val listState = rememberLazyListState()
+    val modalFocusRequester = remember { FocusRequester() }
     val installedAddonFor: (CloudstreamPluginIndexEntry) -> com.arflix.tv.data.model.Addon? = { plugin ->
         installedPlugins.firstOrNull {
             it.runtimeKind == RuntimeKind.CLOUDSTREAM &&
                 it.internalName == plugin.internalName &&
                 it.repoUrl.equals(repoUrl, ignoreCase = true)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        modalFocusRequester.requestFocus()
+    }
+
+    LaunchedEffect(focusedIndex, plugins.size) {
+        if (plugins.isNotEmpty()) {
+            val targetIndex = focusedIndex.coerceIn(0, plugins.lastIndex)
+            listState.animateScrollToItem(targetIndex)
+        }
+    }
+
+    LaunchedEffect(plugins.size) {
+        if (plugins.isEmpty()) {
+            focusedIndex = 0
+            focusedAction = 0
+        } else if (focusedIndex > plugins.lastIndex) {
+            focusedIndex = plugins.lastIndex
+            focusedAction = 0
         }
     }
     androidx.compose.ui.window.Dialog(
@@ -3725,6 +3748,8 @@ private fun CloudstreamPluginPickerModal(
                     .widthIn(max = 860.dp)
                     .background(BackgroundElevated, RoundedCornerShape(16.dp))
                     .padding(24.dp)
+                    .focusRequester(modalFocusRequester)
+                    .focusable()
                     .onPreviewKeyEvent { event ->
                         if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                         when (event.key) {
@@ -3820,6 +3845,7 @@ private fun CloudstreamPluginPickerModal(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(max = 420.dp),
+                        state = listState,
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         itemsIndexed(plugins) { index, plugin ->
