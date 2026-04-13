@@ -153,6 +153,9 @@ import okhttp3.CookieJar
 import okhttp3.HttpUrl
 import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import androidx.media3.exoplayer.hls.HlsMediaSource
@@ -187,6 +190,7 @@ fun PlayerScreen(
     val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
     val deviceType = LocalDeviceType.current
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     // Keep playback in landscape while the player is visible, regardless of the
     // device's auto-rotate lock. Restore the app's prior orientation afterward.
@@ -715,6 +719,23 @@ fun PlayerScreen(
                     }
                 })
             }
+    }
+
+    DisposableEffect(lifecycleOwner, exoPlayer) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
+                    if (exoPlayer.isPlaying) {
+                        exoPlayer.pause()
+                    }
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     val queueControlsSeek: (Long) -> Unit = queueSeek@{ deltaMs ->
