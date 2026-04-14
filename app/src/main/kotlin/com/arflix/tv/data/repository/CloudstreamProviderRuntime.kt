@@ -18,6 +18,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val CLOUDSTREAM_TAG = "CloudstreamRuntime"
+private const val CLOUDSTREAM_DEBUG_TAG = "CloudStreamDebug"
 
 @Singleton
 class CloudstreamProviderRuntime @Inject constructor(
@@ -94,7 +95,14 @@ class CloudstreamProviderRuntime @Inject constructor(
             .map { (addon, artifactPath) ->
                 async {
                     runCatching { resolver(addon, artifactPath) }
-                        .getOrElse { emptyList() }
+                        .getOrElse { error ->
+                            Log.e(
+                                CLOUDSTREAM_DEBUG_TAG,
+                                "Failed to load/instantiate provider",
+                                error
+                            )
+                            emptyList()
+                        }
                 }
             }
             .awaitAll()
@@ -159,16 +167,33 @@ class ReflectiveCloudstreamArtifactExecutor @Inject constructor(
 
         return entrypoints.flatMap { entrypoint ->
             val providerLabel = entrypoint.javaClass.simpleName.ifBlank { "UnknownProvider" }
+            Log.d(
+                CLOUDSTREAM_DEBUG_TAG,
+                "Executing search for: ${request.title} on $providerLabel"
+            )
             val raw = runCatching { entrypoint.resolveMovie(request) }
                 .onFailure {
+                    Log.e(CLOUDSTREAM_DEBUG_TAG, "Scraping failed", it)
                     Log.w(
                         CLOUDSTREAM_TAG,
                         "[Cloudstream] movie resolve failed artifact=$artifactPath provider=$providerLabel error=${it.message}"
                     )
                 }
                 .getOrDefault(emptyList())
+            Log.d(CLOUDSTREAM_DEBUG_TAG, "Search returned ${raw.size} items")
 
-            val filtered = raw.filter { stream -> shouldKeepByTitle(request.title, stream.name) }
+            val fuzzyWinner = pickFuzzyWinner(request.title, raw.map { it.name })
+            if (fuzzyWinner != null) {
+                Log.d(
+                    CLOUDSTREAM_DEBUG_TAG,
+                    "Fuzzy match winner: ${fuzzyWinner.first} with score ${"%.2f".format(fuzzyWinner.second)}"
+                )
+            }
+
+            val filtered = when {
+                fuzzyWinner != null -> raw.filter { stream -> stream.name == fuzzyWinner.first }
+                else -> raw.filter { stream -> shouldKeepByTitle(request.title, stream.name) }
+            }
             if (raw.isNotEmpty() && filtered.isEmpty()) {
                 Log.w(
                     CLOUDSTREAM_TAG,
@@ -197,16 +222,33 @@ class ReflectiveCloudstreamArtifactExecutor @Inject constructor(
 
         return entrypoints.flatMap { entrypoint ->
             val providerLabel = entrypoint.javaClass.simpleName.ifBlank { "UnknownProvider" }
+            Log.d(
+                CLOUDSTREAM_DEBUG_TAG,
+                "Executing search for: ${request.title} on $providerLabel"
+            )
             val raw = runCatching { entrypoint.resolveEpisode(request) }
                 .onFailure {
+                    Log.e(CLOUDSTREAM_DEBUG_TAG, "Scraping failed", it)
                     Log.w(
                         CLOUDSTREAM_TAG,
                         "[Cloudstream] episode resolve failed artifact=$artifactPath provider=$providerLabel error=${it.message}"
                     )
                 }
                 .getOrDefault(emptyList())
+            Log.d(CLOUDSTREAM_DEBUG_TAG, "Search returned ${raw.size} items")
 
-            val filtered = raw.filter { stream -> shouldKeepByTitle(request.title, stream.name) }
+            val fuzzyWinner = pickFuzzyWinner(request.title, raw.map { it.name })
+            if (fuzzyWinner != null) {
+                Log.d(
+                    CLOUDSTREAM_DEBUG_TAG,
+                    "Fuzzy match winner: ${fuzzyWinner.first} with score ${"%.2f".format(fuzzyWinner.second)}"
+                )
+            }
+
+            val filtered = when {
+                fuzzyWinner != null -> raw.filter { stream -> stream.name == fuzzyWinner.first }
+                else -> raw.filter { stream -> shouldKeepByTitle(request.title, stream.name) }
+            }
             if (raw.isNotEmpty() && filtered.isEmpty()) {
                 Log.w(
                     CLOUDSTREAM_TAG,
@@ -236,12 +278,16 @@ class ReflectiveCloudstreamArtifactExecutor @Inject constructor(
                 .toList()
             providers
         } catch (e: ClassNotFoundException) {
+            Log.e(CLOUDSTREAM_DEBUG_TAG, "Failed to load/instantiate provider", e)
             emptyList()
         } catch (e: IllegalAccessException) {
+            Log.e(CLOUDSTREAM_DEBUG_TAG, "Failed to load/instantiate provider", e)
             emptyList()
         } catch (e: InstantiationException) {
+            Log.e(CLOUDSTREAM_DEBUG_TAG, "Failed to load/instantiate provider", e)
             emptyList()
         } catch (e: java.util.ServiceConfigurationError) {
+            Log.e(CLOUDSTREAM_DEBUG_TAG, "Failed to load/instantiate provider", e)
             emptyList()
         }
     }
@@ -269,7 +315,17 @@ class ReflectiveCloudstreamArtifactExecutor @Inject constructor(
 
 private fun shouldKeepByTitle(expectedTitle: String, candidateTitle: String): Boolean {
     if (expectedTitle.isBlank() || candidateTitle.isBlank()) return true
-    return similarity(expectedTitle, candidateTitle) >= 0.82
+    return similarity(expectedTitle, candidateTitle) >= 0.80
+}
+
+private fun pickFuzzyWinner(expectedTitle: String, candidateTitles: List<String>): Pair<String, Double>? {
+    if (expectedTitle.isBlank()) return null
+    return candidateTitles
+        .asSequence()
+        .filter { it.isNotBlank() }
+        .map { candidate -> candidate to similarity(expectedTitle, candidate) }
+        .maxByOrNull { it.second }
+        ?.takeIf { it.second >= 0.80 }
 }
 
 private fun isPathInside(root: File, target: File): Boolean {
