@@ -157,7 +157,7 @@ import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import androidx.media3.exoplayer.hls.HlsMediaSource

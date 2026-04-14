@@ -15,7 +15,7 @@ import javax.inject.Singleton
 
 @Singleton
 class CloudstreamProviderRuntime @Inject constructor(
-    private val artifactExecutor: CloudstreamArtifactExecutor = ReflectiveCloudstreamArtifactExecutor()
+    private val artifactExecutor: CloudstreamArtifactExecutor
 ) {
     suspend fun resolveMovieStreams(
         addons: List<Addon>,
