@@ -94,6 +94,13 @@ class StreamRepository @Inject constructor(
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var addonHealthLoadedProfileId: String? = null
 
+    // Precompiled quality filters cached in memory to avoid DataStore reads and regex compilation in hot path
+    private data class PrecompiledQualityFilter(
+        val regexes: List<Regex>,
+        val isEmpty: Boolean = regexes.isEmpty()
+    )
+    @Volatile private var cachedQualityFilters = PrecompiledQualityFilter(emptyList(), isEmpty = true)
+
     // Profile-scoped preference keys - each profile has its own addons
     private fun addonsKey() = profileManager.profileStringKey("installed_addons")
     private fun addonsKeyFor(profileId: String) = profileManager.profileStringKeyFor(profileId, "installed_addons")
@@ -107,7 +114,46 @@ class StreamRepository @Inject constructor(
     init {
         repositoryScope.launch {
             ensureAddonHealthLoaded()
+            loadQualityFiltersCache()
         }
+    }
+
+    /**
+     * Load and cache quality filters on init to avoid DataStore reads in hot path.
+     * Filters are precompiled for efficient matching during stream resolution.
+     */
+    private suspend fun loadQualityFiltersCache() {
+        runCatching {
+            val json = context.settingsDataStore.data.first()[qualityFiltersKey].orEmpty()
+            if (json.isBlank()) {
+                cachedQualityFilters = PrecompiledQualityFilter(emptyList(), isEmpty = true)
+            } else {
+                val filters = gson.fromJson<List<QualityFilterConfig>>(
+                    json,
+                    object : TypeToken<List<QualityFilterConfig>>() {}.type
+                ).orEmpty()
+                    .filter { it.enabled && it.regexPattern.isNotBlank() }
+                val regexes = filters.mapNotNull { filter ->
+                    runCatching { Regex(filter.regexPattern, RegexOption.IGNORE_CASE) }.getOrNull()
+                }
+                cachedQualityFilters = PrecompiledQualityFilter(regexes, isEmpty = regexes.isEmpty())
+            }
+        }.onFailure {
+            cachedQualityFilters = PrecompiledQualityFilter(emptyList(), isEmpty = true)
+        }
+    }
+
+    /**
+     * Update cached quality filters after settings change.
+     * Called from SettingsViewModel when filters are added/toggled/deleted.
+     * Precompiles regexes to avoid compilation cost during stream checks.
+     */
+    fun updateQualityFiltersCache(filters: List<QualityFilterConfig>) {
+        val enabledFilters = filters.filter { it.enabled && it.regexPattern.isNotBlank() }
+        val regexes = enabledFilters.mapNotNull { filter ->
+            runCatching { Regex(filter.regexPattern, RegexOption.IGNORE_CASE) }.getOrNull()
+        }
+        cachedQualityFilters = PrecompiledQualityFilter(regexes, isEmpty = regexes.isEmpty())
     }
     fun observeTorrServerBaseUrl(): Flow<String> =
         profileManager.activeProfileId.combine(context.streamDataStore.data) { _, prefs ->
@@ -2026,27 +2072,9 @@ class StreamRepository @Inject constructor(
 
     private suspend fun applyQualityRegexFilters(streams: List<StreamSource>): List<StreamSource> {
         if (streams.isEmpty()) return streams
+        if (cachedQualityFilters.isEmpty) return streams
 
-        val activeFilters = runCatching {
-            val json = context.settingsDataStore.data.first()[qualityFiltersKey].orEmpty()
-            if (json.isBlank()) {
-                emptyList<QualityFilterConfig>()
-            } else {
-                gson.fromJson<List<QualityFilterConfig>>(
-                    json,
-                    object : TypeToken<List<QualityFilterConfig>>() {}.type
-                ).orEmpty()
-                    .filter { it.enabled && it.regexPattern.isNotBlank() }
-            }
-        }.getOrDefault(emptyList())
-
-        if (activeFilters.isEmpty()) return streams
-
-        val compiledRegex = activeFilters.mapNotNull { filter ->
-            runCatching { Regex(filter.regexPattern, RegexOption.IGNORE_CASE) }.getOrNull()
-        }
-        if (compiledRegex.isEmpty()) return streams
-
+        // Use precompiled regexes from cache (no DataStore reads, no recompilation)
         return streams.filter { stream ->
             val qualityText = buildString {
                 append(stream.quality)
@@ -2055,7 +2083,7 @@ class StreamRepository @Inject constructor(
                     append(stream.source)
                 }
             }
-            compiledRegex.none { regex -> regex.containsMatchIn(qualityText) }
+            cachedQualityFilters.regexes.none { regex -> regex.containsMatchIn(qualityText) }
         }
     }
 }

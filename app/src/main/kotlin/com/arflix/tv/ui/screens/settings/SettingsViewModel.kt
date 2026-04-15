@@ -974,6 +974,8 @@ class SettingsViewModel @Inject constructor(
         }
         // Device-scoped capability filter: intentionally local and not cloud-synced.
         _uiState.value = _uiState.value.copy(qualityFilters = filters)
+        // Update in-memory cache in StreamRepository to avoid DataStore reads in hot path
+        streamRepository.updateQualityFiltersCache(filters)
     }
     
     // ========== Addon Management ==========

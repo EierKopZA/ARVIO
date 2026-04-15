@@ -186,6 +186,8 @@ fun SettingsScreen(
     var showUiModeWarningDialog by remember { mutableStateOf(false) }
     var nextUiMode by remember { mutableStateOf("") }
     var showQualityFiltersModal by remember { mutableStateOf(false) }
+    var qualityFiltersModalFocusedFilterIndex by remember { mutableIntStateOf(-1) }
+    var qualityFiltersModalFocusedActionIndex by remember { mutableIntStateOf(-1) }
     var showQualityFilterInput by remember { mutableStateOf(false) }
     var qualityFilterDeviceName by remember { mutableStateOf("") }
     var qualityFilterRegex by remember { mutableStateOf("") }
@@ -1052,13 +1054,23 @@ fun SettingsScreen(
         if (showQualityFiltersModal) {
             QualityFiltersModal(
                 filters = uiState.qualityFilters,
-                onDismiss = { showQualityFiltersModal = false },
+                onDismiss = { 
+                    showQualityFiltersModal = false
+                    qualityFiltersModalFocusedFilterIndex = -1
+                    qualityFiltersModalFocusedActionIndex = -1
+                },
                 onAdd = {
                     showQualityFiltersModal = false
                     showQualityFilterInput = true
+                    qualityFiltersModalFocusedFilterIndex = -1
+                    qualityFiltersModalFocusedActionIndex = -1
                 },
                 onToggle = { viewModel.toggleQualityFilter(it) },
-                onDelete = { viewModel.deleteQualityFilter(it) }
+                onDelete = { viewModel.deleteQualityFilter(it) },
+                focusedFilterIndex = qualityFiltersModalFocusedFilterIndex,
+                onFocusedFilterIndexChange = { qualityFiltersModalFocusedFilterIndex = it },
+                focusedActionIndex = qualityFiltersModalFocusedActionIndex,
+                onFocusedActionIndexChange = { qualityFiltersModalFocusedActionIndex = it }
             )
         }
 
@@ -1383,7 +1395,11 @@ private fun QualityFiltersModal(
     onDismiss: () -> Unit,
     onAdd: () -> Unit,
     onToggle: (String) -> Unit,
-    onDelete: (String) -> Unit
+    onDelete: (String) -> Unit,
+    focusedFilterIndex: Int = -1,
+    onFocusedFilterIndexChange: (Int) -> Unit = {},
+    focusedActionIndex: Int = -1,
+    onFocusedActionIndexChange: (Int) -> Unit = {}
 ) {
     androidx.compose.ui.window.Dialog(
         onDismissRequest = onDismiss,
@@ -1427,7 +1443,7 @@ private fun QualityFiltersModal(
                             .fillMaxWidth()
                             .heightIn(max = 460.dp)
                     ) {
-                        itemsIndexed(filters) { _, filter ->
+                        itemsIndexed(filters) { index, filter ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1454,13 +1470,13 @@ private fun QualityFiltersModal(
                                 }
                                 CatalogActionChip(
                                     icon = if (filter.enabled) Icons.Default.Check else Icons.Default.VisibilityOff,
-                                    isFocused = false,
+                                    isFocused = focusedFilterIndex == index && focusedActionIndex == 0,
                                     onClick = { onToggle(filter.id) }
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 CatalogActionChip(
                                     icon = Icons.Default.Delete,
-                                    isFocused = false,
+                                    isFocused = focusedFilterIndex == index && focusedActionIndex == 1,
                                     isDestructive = true,
                                     onClick = { onDelete(filter.id) }
                                 )
