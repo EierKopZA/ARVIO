@@ -73,9 +73,6 @@ class MediaRepository @Inject constructor(
     private val okHttpClient: OkHttpClient,
     private val streamRepository: StreamRepository
 ) {
-    companion object {
-        const val STREAMING_COLLECTION_ADDON_URL = "https://pastebin.com/raw/P4gfd98n"
-    }
 
     data class CategoryPageResult(
         val items: List<MediaItem>,
@@ -172,115 +169,144 @@ class MediaRepository @Inject constructor(
         items.forEach { cacheItem(it) }
     }
 
-    fun getDefaultCatalogConfigs(): List<CatalogConfig> {
-        return listOf(
-            CatalogConfig("favorite_tv", "Favorite TV", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
-            CatalogConfig("trending_movies", "Trending in Movies", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/trending-movies", sourceRef = "mdblist:https://mdblist.com/lists/snoak/trending-movies"),
-            CatalogConfig("trending_tv", "Trending in Shows", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/trakt-s-trending-shows", sourceRef = "mdblist:https://mdblist.com/lists/snoak/trakt-s-trending-shows"),
-            CatalogConfig("trending_anime", "Trending in Anime", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/trending-anime-shows", sourceRef = "mdblist:https://mdblist.com/lists/snoak/trending-anime-shows"),
-            CatalogConfig("top10_movies_today", "Top 10 Movies Today", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/top-10-movies-of-the-day", sourceRef = "mdblist:https://mdblist.com/lists/snoak/top-10-movies-of-the-day"),
-            CatalogConfig("top10_shows_today", "Top 10 Shows Today", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/top-10-shows-of-the-day", sourceRef = "mdblist:https://mdblist.com/lists/snoak/top-10-shows-of-the-day"),
-            CatalogConfig("just_added", "Just Added", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/latest-movies-digital-release", sourceRef = "mdblist:https://mdblist.com/lists/snoak/latest-movies-digital-release"),
-            CatalogConfig("top_movies_week", "Top Movies This Week", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/linaspurinis/top-watched-movies-of-the-week", sourceRef = "mdblist:https://mdblist.com/lists/linaspurinis/top-watched-movies-of-the-week"),
-            CatalogConfig("new_kdramas", "New in K-Dramas", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/latest-kdrama-shows", sourceRef = "mdblist:https://mdblist.com/lists/snoak/latest-kdrama-shows"),
-            CatalogConfig("coming_soon", "Coming Soon", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/upcoming-movies", sourceRef = "mdblist:https://mdblist.com/lists/snoak/upcoming-movies")
-        ) + getDefaultCollectionCatalogConfigs()
-    }
+    fun getDefaultCatalogConfigs(): List<CatalogConfig> = buildPreinstalledDefaults()
 
-    private fun getDefaultCollectionCatalogConfigs(): List<CatalogConfig> {
-        fun addonCollectionSource(addonId: String?, type: String, id: String) = CollectionSourceConfig(
-            kind = CollectionSourceKind.ADDON_CATALOG,
-            addonId = addonId,
-            addonCatalogType = type,
-            addonCatalogId = id
-        )
-        /** Streaming-service trending via TMDB watch-providers. */
-        fun watchProviderSource(mediaType: MediaType, providerId: Int) = CollectionSourceConfig(
-            kind = CollectionSourceKind.TMDB_WATCH_PROVIDER,
-            mediaType = if (mediaType == MediaType.MOVIE) "movie" else "series",
-            tmdbWatchProviderId = providerId,
-            watchRegion = "US",
-            sortBy = "popularity.desc"
-        )
-        fun tmdbCollectionSource(collectionId: Int) = CollectionSourceConfig(
-            kind = CollectionSourceKind.TMDB_COLLECTION,
-            tmdbCollectionId = collectionId
-        )
-        fun tmdbKeywordSource(mediaType: MediaType?, keywordId: Int) = CollectionSourceConfig(
-            kind = CollectionSourceKind.TMDB_KEYWORD,
-            mediaType = when (mediaType) {
-                MediaType.MOVIE -> "movie"
-                MediaType.TV -> "series"
-                else -> null
-            },
-            tmdbKeywordId = keywordId,
-            sortBy = "popularity.desc"
-        )
-        fun tmdbGenreSource(mediaType: MediaType, genreId: Int) = CollectionSourceConfig(
-            kind = CollectionSourceKind.TMDB_GENRE,
-            mediaType = if (mediaType == MediaType.MOVIE) "movie" else "series",
-            tmdbGenreId = genreId,
-            sortBy = "popularity.desc"
-        )
-        fun curatedSource(vararg refs: String) = CollectionSourceConfig(
-            kind = CollectionSourceKind.CURATED_IDS,
-            curatedRefs = refs.toList()
-        )
-        // Public mdblist list (anonymous JSON endpoint). `slug` is everything
-        // after /lists/ — e.g. "jxduffy/star-wars-chronological-order". Used
-        // as a completeness fill-in behind curated lists: curated entries win
-        // the ordering; mdblist-only items get appended at the end.
-        fun mdblistSource(slug: String) = CollectionSourceConfig(
-            kind = CollectionSourceKind.MDBLIST_PUBLIC,
-            mdblistSlug = slug
-        )
-        fun collection(
-            id: String,
-            title: String,
-            group: CollectionGroupKind,
-            description: String,
-            cover: String? = null,
-            focusGif: String? = null,
-            hero: String? = null,
-            heroVideo: String? = null,
-            clearLogo: String? = null,
-            sources: List<CollectionSourceConfig>,
-            requiredAddons: List<String> = emptyList()
-        ) = CatalogConfig(
-            id = id,
-            title = title,
-            sourceType = CatalogSourceType.PREINSTALLED,
-            isPreinstalled = true,
-            kind = CatalogKind.COLLECTION,
-            collectionGroup = group,
-            collectionDescription = description,
-            collectionCoverImageUrl = cover,
-            collectionFocusGifUrl = focusGif ?: cover,
-            collectionHeroImageUrl = hero ?: cover,
-            collectionHeroGifUrl = focusGif ?: hero ?: cover,
-            collectionHeroVideoUrl = heroVideo,
-            collectionClearLogoUrl = clearLogo,
-            collectionSources = sources,
-            requiredAddonUrls = requiredAddons
-        )
+    companion object {
+        const val STREAMING_COLLECTION_ADDON_URL = "https://pastebin.com/raw/P4gfd98n"
+
+        /**
+         * Build the full preinstalled catalog list for a fresh profile:
+         * top-level feeds (favorites, trending, mdblist-backed rows) plus the
+         * collections rail (streaming services, franchises, genres).
+         *
+         * Called via `getDefaultCatalogConfigs()` to seed a fresh profile with
+         * the bundled preinstalled catalogs. Kept in the companion object so
+         * `PreinstalledServicesTest` can invoke it without constructing a full
+         * MediaRepository (which would need every injected dependency).
+         */
+        internal fun buildPreinstalledDefaults(): List<CatalogConfig> {
+            val topLevelCatalogs = listOf(
+                CatalogConfig("favorite_tv", "Favorite TV", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
+                CatalogConfig("trending_movies", "Trending in Movies", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/trending-movies", sourceRef = "mdblist:https://mdblist.com/lists/snoak/trending-movies"),
+                CatalogConfig("trending_tv", "Trending in Shows", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/trakt-s-trending-shows", sourceRef = "mdblist:https://mdblist.com/lists/snoak/trakt-s-trending-shows"),
+                CatalogConfig("trending_anime", "Trending in Anime", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/trending-anime-shows", sourceRef = "mdblist:https://mdblist.com/lists/snoak/trending-anime-shows"),
+                CatalogConfig("top10_movies_today", "Top 10 Movies Today", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/top-10-movies-of-the-day", sourceRef = "mdblist:https://mdblist.com/lists/snoak/top-10-movies-of-the-day"),
+                CatalogConfig("top10_shows_today", "Top 10 Shows Today", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/top-10-shows-of-the-day", sourceRef = "mdblist:https://mdblist.com/lists/snoak/top-10-shows-of-the-day"),
+                CatalogConfig("just_added", "Just Added", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/latest-movies-digital-release", sourceRef = "mdblist:https://mdblist.com/lists/snoak/latest-movies-digital-release"),
+                CatalogConfig("top_movies_week", "Top Movies This Week", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/linaspurinis/top-watched-movies-of-the-week", sourceRef = "mdblist:https://mdblist.com/lists/linaspurinis/top-watched-movies-of-the-week"),
+                CatalogConfig("new_kdramas", "New in K-Dramas", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/latest-kdrama-shows", sourceRef = "mdblist:https://mdblist.com/lists/snoak/latest-kdrama-shows"),
+                CatalogConfig("coming_soon", "Coming Soon", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/upcoming-movies", sourceRef = "mdblist:https://mdblist.com/lists/snoak/upcoming-movies")
+            )
+
+            fun addonCollectionSource(addonId: String?, type: String, id: String) = CollectionSourceConfig(
+                kind = CollectionSourceKind.ADDON_CATALOG,
+                addonId = addonId,
+                addonCatalogType = type,
+                addonCatalogId = id
+            )
+            /** Streaming-service trending via TMDB watch-providers. */
+            fun watchProviderSource(mediaType: MediaType, providerId: Int) = CollectionSourceConfig(
+                kind = CollectionSourceKind.TMDB_WATCH_PROVIDER,
+                mediaType = if (mediaType == MediaType.MOVIE) "movie" else "series",
+                tmdbWatchProviderId = providerId,
+                watchRegion = "US",
+                sortBy = "popularity.desc"
+            )
+            fun tmdbCollectionSource(collectionId: Int) = CollectionSourceConfig(
+                kind = CollectionSourceKind.TMDB_COLLECTION,
+                tmdbCollectionId = collectionId
+            )
+            fun tmdbKeywordSource(mediaType: MediaType?, keywordId: Int) = CollectionSourceConfig(
+                kind = CollectionSourceKind.TMDB_KEYWORD,
+                mediaType = when (mediaType) {
+                    MediaType.MOVIE -> "movie"
+                    MediaType.TV -> "series"
+                    else -> null
+                },
+                tmdbKeywordId = keywordId,
+                sortBy = "popularity.desc"
+            )
+            fun tmdbGenreSource(mediaType: MediaType, genreId: Int) = CollectionSourceConfig(
+                kind = CollectionSourceKind.TMDB_GENRE,
+                mediaType = if (mediaType == MediaType.MOVIE) "movie" else "series",
+                tmdbGenreId = genreId,
+                sortBy = "popularity.desc"
+            )
+            fun curatedSource(vararg refs: String) = CollectionSourceConfig(
+                kind = CollectionSourceKind.CURATED_IDS,
+                curatedRefs = refs.toList()
+            )
+            // Public mdblist list (anonymous JSON endpoint). `slug` is everything
+            // after /lists/ — e.g. "jxduffy/star-wars-chronological-order". Used
+            // as a completeness fill-in behind curated lists: curated entries win
+            // the ordering; mdblist-only items get appended at the end.
+            fun mdblistSource(slug: String) = CollectionSourceConfig(
+                kind = CollectionSourceKind.MDBLIST_PUBLIC,
+                mdblistSlug = slug
+            )
+            fun collection(
+                id: String,
+                title: String,
+                group: CollectionGroupKind,
+                description: String,
+                cover: String? = null,
+                focusGif: String? = null,
+                hero: String? = null,
+                heroVideo: String? = null,
+                clearLogo: String? = null,
+                sources: List<CollectionSourceConfig>,
+                requiredAddons: List<String> = emptyList()
+            ) = CatalogConfig(
+                id = id,
+                title = title,
+                sourceType = CatalogSourceType.PREINSTALLED,
+                isPreinstalled = true,
+                kind = CatalogKind.COLLECTION,
+                collectionGroup = group,
+                collectionDescription = description,
+                collectionCoverImageUrl = cover,
+                collectionFocusGifUrl = focusGif ?: cover,
+                collectionHeroImageUrl = hero ?: cover,
+                collectionHeroGifUrl = focusGif ?: hero ?: cover,
+                collectionHeroVideoUrl = heroVideo,
+                collectionClearLogoUrl = clearLogo,
+                collectionSources = sources,
+                requiredAddonUrls = requiredAddons
+            )
 
         // ──────────────────────────────────────────────────────────────
-        // Streaming Services (nuvio catalog — 12 services)
-        // Uses addon-sourced catalogs when the user has the relevant
-        // addon installed (aio-metadata / org.kris.ultra.max.all.v5 /
-        // community.bharatbinge / community-provided pastebin), falling
-        // back to TMDB watch-providers so the row works out-of-the-box.
+        // Streaming Services (12 total)
+        //
+        // Premium 7 (Netflix, Prime, Apple TV+, Disney+, HBO Max, Hulu,
+        // Paramount+) lead the list and use the mrtxiv networks-video-
+        // collection assets: static PNG cover + MP4 hero loop. `focusGif` is
+        // null so `collection()`'s `focusGif ?: cover` fallback keeps the
+        // cover displayed on focus (no GIF swap, since we rely on the video
+        // loop for motion). `clearLogo` is null across all 12 services — the
+        // PNG cover already carries the service wordmark and layering a
+        // separate clearLogo on top would double-stamp the branding.
+        //
+        // The remaining 5 services keep their existing community cover + TMDB
+        // hero while adopting the same null-focusGif / null-clearLogo shape.
+        //
+        // Addon catalogs (aio-metadata / org.kris.ultra.max.all.v5 /
+        // community.bharatbinge / community-provided pastebin) win when the
+        // user has them installed; the TMDB watch-provider source is the
+        // out-of-the-box fallback so the rail populates on a fresh profile.
         // ──────────────────────────────────────────────────────────────
+        val mrtxivBase = "https://raw.githubusercontent.com/mrtxiv/networks-video-collection/3486fc9a3d0efe59d1929e75f66021dc4e15bcb7/"
         val services = listOf(
+            // ── Premium 7 (mrtxiv assets + motion hero) ──
             collection(
                 id = "collection_service_netflix",
                 title = "Netflix",
                 group = CollectionGroupKind.SERVICE,
                 description = "Trending movies and series on Netflix.",
-                cover = "https://www.nuvioapp.space/uploads/covers/0696cf9a-3612-4d9b-bb65-72c6c5a060ba.gif",
-                focusGif = "https://i.pinimg.com/originals/bb/74/04/bb74046420c4c992b8cabc6e667abe40.gif",
-                hero = "https://image.tmdb.org/t/p/original/56v2KjBlU4XaOv9rVYEQypROD7P.jpg",
-                clearLogo = "https://image.tmdb.org/t/p/original/wwemzKWzjKYJFfCeiB57q3r4Bcm.png",
+                cover = "${mrtxivBase}networks%20collection/netflix.png",
+                focusGif = null,
+                hero = null,
+                heroVideo = "${mrtxivBase}networks%20videos/netflix.mp4",
+                clearLogo = null,
                 sources = listOf(
                     addonCollectionSource("aio-metadata", "movie", "mdblist.88328"),
                     addonCollectionSource("aio-metadata", "series", "mdblist.86751"),
@@ -298,10 +324,11 @@ class MediaRepository @Inject constructor(
                 title = "Prime Video",
                 group = CollectionGroupKind.SERVICE,
                 description = "Trending movies and series on Prime Video.",
-                cover = "https://www.nuvioapp.space/uploads/covers/a6f99245-c1af-4502-866c-2339ca831597.png",
-                focusGif = "https://media1.tenor.com/m/T7L_NCdPIvAAAAAC/prime-video.gif",
-                hero = "https://image.tmdb.org/t/p/original/mGVrXeIjyecj6TKmwPVpHlscEmw.jpg",
-                clearLogo = "https://image.tmdb.org/t/p/original/ifhbNuuVnlwYy5oXA5VIb2YR8AZ.png",
+                cover = "${mrtxivBase}networks%20collection/amazonprime.png",
+                focusGif = null,
+                hero = null,
+                heroVideo = "${mrtxivBase}networks%20videos/amazonprime.mp4",
+                clearLogo = null,
                 sources = listOf(
                     addonCollectionSource("aio-metadata", "movie", "mdblist.86755"),
                     addonCollectionSource("aio-metadata", "series", "mdblist.86753"),
@@ -319,14 +346,11 @@ class MediaRepository @Inject constructor(
                 title = "Apple TV+",
                 group = CollectionGroupKind.SERVICE,
                 description = "Trending movies and series on Apple TV+.",
-                cover = "https://www.nuvioapp.space/uploads/covers/1a8c8f2c-c51d-47c6-835e-bee6bbf5da0e.jpg",
-                focusGif = "https://media1.tenor.com/m/1FiEEnGTgUcAAAAC/apple-appletv.gif",
-                hero = "https://image.tmdb.org/t/p/original/vDGr1YdrlfbU9wxTOdpf3zChmv9.jpg",
-                // Prior clearlogo 4KAy34EHvRM25Ih8wb82AuGU7zJ.png was the black
-                // wordmark — invisible on dark card art. Swap to the TMDB
-                // watch-provider badge (canonical Apple TV+ service mark,
-                // high-res, solid dark background with white lettering).
-                clearLogo = "https://image.tmdb.org/t/p/original/mcbz1LgtErU9p4UdbZ0rG6RTWHX.jpg",
+                cover = "${mrtxivBase}networks%20collection/appletvplus.png",
+                focusGif = null,
+                hero = null,
+                heroVideo = "${mrtxivBase}networks%20videos/appletv.mp4",
+                clearLogo = null,
                 sources = listOf(
                     addonCollectionSource("org.kris.ultra.max.all.v5", "movie", "apple_movies"),
                     addonCollectionSource("org.kris.ultra.max.all.v5", "series", "apple_series"),
@@ -339,10 +363,11 @@ class MediaRepository @Inject constructor(
                 title = "Disney+",
                 group = CollectionGroupKind.SERVICE,
                 description = "Trending movies and series on Disney+.",
-                cover = "https://www.nuvioapp.space/uploads/covers/ce7f8d04-5399-4456-8a0d-7deb9fcec096.png",
-                focusGif = "https://image2url.com/r2/default/gifs/1775853307569-71b9019d-4620-4a71-8b92-7eb045843b1a.gif",
-                hero = "https://image.tmdb.org/t/p/original/9ijMGlJKqcslswWUzTEwScm82Gs.jpg",
-                clearLogo = "https://image.tmdb.org/t/p/original/gJ8VX6JSu3ciXHuC2dDGAo2lvwM.png",
+                cover = "${mrtxivBase}networks%20collection/disneyplus.png",
+                focusGif = null,
+                hero = null,
+                heroVideo = "${mrtxivBase}networks%20videos/disneyplus.mp4",
+                clearLogo = null,
                 sources = listOf(
                     addonCollectionSource("org.kris.ultra.max.all.v5", "movie", "disney_movies"),
                     addonCollectionSource("org.kris.ultra.max.all.v5", "series", "disney_series"),
@@ -356,34 +381,15 @@ class MediaRepository @Inject constructor(
                 requiredAddons = listOf(STREAMING_COLLECTION_ADDON_URL)
             ),
             collection(
-                id = "collection_service_paramount",
-                title = "Paramount+",
-                group = CollectionGroupKind.SERVICE,
-                description = "Trending movies and series on Paramount+.",
-                cover = "https://image.tmdb.org/t/p/original/2Nti3gYAX513wvhp8IiLL6ZDyOm.jpg",
-                focusGif = "https://ingeniousguru.com/wp-content/uploads/2022/10/Paramount.gif",
-                hero = "https://image.tmdb.org/t/p/original/2Nti3gYAX513wvhp8IiLL6ZDyOm.jpg",
-                clearLogo = "https://image.tmdb.org/t/p/original/fi83B1oztoS47xxcemFdPMhIzK.png",
-                sources = listOf(
-                    addonCollectionSource("aio-metadata", "movie", "mdblist.86762"),
-                    addonCollectionSource("aio-metadata", "series", "mdblist.86761"),
-                    addonCollectionSource("org.kris.ultra.max.all.v5", "movie", "paramount_movies"),
-                    watchProviderSource(MediaType.MOVIE, 531),
-                    watchProviderSource(MediaType.TV, 531)
-                )
-            ),
-            collection(
                 id = "collection_service_hbo",
                 title = "HBO Max",
                 group = CollectionGroupKind.SERVICE,
                 description = "Trending movies and series on HBO Max.",
-                cover = "https://media1.tenor.com/m/pjHZN-n1kvkAAAAC/hbo-max.gif",
-                focusGif = "https://media1.tenor.com/m/pjHZN-n1kvkAAAAC/hbo-max.gif",
-                // Hero: The Last of Us flagship backdrop (3840×2160). Prior
-                // `jbe4gVSfRlbPTdESXhEKpornsfu` looked generic and the `.png`
-                // logo variant 404'd.
-                hero = "https://image.tmdb.org/t/p/original/lY2DhbA7Hy44fAKddr06UrXWWaQ.jpg",
-                clearLogo = "https://image.tmdb.org/t/p/original/jbe4gVSfRlbPTdESXhEKpornsfu.jpg",
+                cover = "${mrtxivBase}networks%20collection/hbomax.png",
+                focusGif = null,
+                hero = null,
+                heroVideo = "${mrtxivBase}networks%20videos/hbomax.mp4",
+                clearLogo = null,
                 sources = listOf(
                     addonCollectionSource("aio-metadata", "movie", "mdblist.89647"),
                     addonCollectionSource("aio-metadata", "series", "mdblist.89649"),
@@ -399,12 +405,11 @@ class MediaRepository @Inject constructor(
                 title = "Hulu",
                 group = CollectionGroupKind.SERVICE,
                 description = "Trending movies and series on Hulu.",
-                cover = "https://image.tmdb.org/t/p/original/wHNwlE6ftEpgjVbdhLXOtv1hLs0.jpg",
-                focusGif = "https://nuvioapp.space/uploads/covers/c237c4b2-875e-4d54-802a-42a4316ff7ab.gif",
-                // Hero: The Bear (flagship Hulu Original, 3840×2160). Prior
-                // `giwM8XX4V2AQiHIu5MeiAtzunxo.png` 404'd.
-                hero = "https://image.tmdb.org/t/p/original/wHNwlE6ftEpgjVbdhLXOtv1hLs0.jpg",
-                clearLogo = "https://image.tmdb.org/t/p/original/bxBlRPEPpMVDc4jMhSrTf2339DW.jpg",
+                cover = "${mrtxivBase}networks%20collection/hulu.png",
+                focusGif = null,
+                hero = null,
+                heroVideo = "${mrtxivBase}networks%20videos/hulu.mp4",
+                clearLogo = null,
                 sources = listOf(
                     addonCollectionSource("aio-metadata", "series", "mdblist.88327"),
                     addonCollectionSource("org.kris.ultra.max.all.v5", "movie", "hulu_movies"),
@@ -414,16 +419,33 @@ class MediaRepository @Inject constructor(
                 )
             ),
             collection(
+                id = "collection_service_paramount",
+                title = "Paramount+",
+                group = CollectionGroupKind.SERVICE,
+                description = "Trending movies and series on Paramount+.",
+                cover = "${mrtxivBase}networks%20collection/paramount.png",
+                focusGif = null,
+                hero = null,
+                heroVideo = "${mrtxivBase}networks%20videos/paramount.mp4",
+                clearLogo = null,
+                sources = listOf(
+                    addonCollectionSource("aio-metadata", "movie", "mdblist.86762"),
+                    addonCollectionSource("aio-metadata", "series", "mdblist.86761"),
+                    addonCollectionSource("org.kris.ultra.max.all.v5", "movie", "paramount_movies"),
+                    watchProviderSource(MediaType.MOVIE, 531),
+                    watchProviderSource(MediaType.TV, 531)
+                )
+            ),
+            // ── Extras (keep existing cover/hero, strip GIF + clearLogo) ──
+            collection(
                 id = "collection_service_shudder",
                 title = "Shudder",
                 group = CollectionGroupKind.SERVICE,
                 description = "Horror & thriller picks from Shudder.",
                 cover = "https://nuvioapp.space/uploads/covers/9a804000-5337-4031-9669-7be45c213f6a.gif",
-                // Hero: The Conjuring (top-voted horror backdrop on TMDB).
-                // Prior `nCbkOyOMTEwlEV0LtCOvCnwEONA` showed but didn't read
-                // as Shudder-branded on the hero strip.
+                focusGif = null,
                 hero = "https://image.tmdb.org/t/p/original/ecKQlAEG95k62SMGhvX83oEqANK.jpg",
-                clearLogo = "https://image.tmdb.org/t/p/original/vEtdiYRPRbDCp1Tcn3BEPF1Ni76.jpg",
+                clearLogo = null,
                 sources = listOf(
                     addonCollectionSource("org.kris.ultra.max.all.v5", "movie", "shudder_movies"),
                     addonCollectionSource("org.kris.ultra.max.all.v5", "series", "shudder_series"),
@@ -437,8 +459,9 @@ class MediaRepository @Inject constructor(
                 group = CollectionGroupKind.SERVICE,
                 description = "Trending movies and series on JioHotstar.",
                 cover = "https://i.postimg.cc/Pr4XcqRq/ezgif-com-video-to-gif-converter.gif",
+                focusGif = null,
                 hero = "https://image.tmdb.org/t/p/original/askg3SMvhqEl4OL52YuvdtY40Yb.jpg",
-                clearLogo = "https://upload.wikimedia.org/wikipedia/commons/thumb/1/19/JioHotstar_logo.svg/2560px-JioHotstar_logo.svg.png",
+                clearLogo = null,
                 sources = listOf(
                     addonCollectionSource("community.bharatbinge", "movie", "flixpatrol-netflix-movies"),
                     addonCollectionSource("community.bharatbinge", "series", "flixpatrol-netflix-series"),
@@ -453,8 +476,9 @@ class MediaRepository @Inject constructor(
                 group = CollectionGroupKind.SERVICE,
                 description = "Trending movies and series on SonyLiv.",
                 cover = "https://cdn.postimage.me/2026/04/11/1000046089.gif",
+                focusGif = null,
                 hero = "https://image.tmdb.org/t/p/original/uDgy6hyPd82kOHh6I95FLtLnj6p.jpg",
-                clearLogo = "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1d/SonyLIV_logo.svg/2560px-SonyLIV_logo.svg.png",
+                clearLogo = null,
                 sources = listOf(
                     addonCollectionSource("community.bharatbinge", "movie", "provider-sonyliv-movies"),
                     addonCollectionSource("community.bharatbinge", "series", "provider-sonyliv-series"),
@@ -468,8 +492,9 @@ class MediaRepository @Inject constructor(
                 group = CollectionGroupKind.SERVICE,
                 description = "Trending movies and series on Sky.",
                 cover = "https://nuvioapp.space/uploads/covers/be914269-f8c5-4c51-8aa5-86581074c10f.png",
+                focusGif = null,
                 hero = "https://image.tmdb.org/t/p/original/pwGmXVKUgKN13psUjlhC9zBcq1o.jpg",
-                clearLogo = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/Sky_Group_logo_2020.svg/2560px-Sky_Group_logo_2020.svg.png",
+                clearLogo = null,
                 sources = listOf(
                     addonCollectionSource("aio-metadata", "movie", "mdblist.38516"),
                     addonCollectionSource("aio-metadata", "series", "mdblist.74627"),
@@ -483,12 +508,9 @@ class MediaRepository @Inject constructor(
                 group = CollectionGroupKind.SERVICE,
                 description = "Anime on Crunchyroll.",
                 cover = "https://ingeniousguru.com/wp-content/uploads/2022/10/creeky-roll.gif",
-                focusGif = "https://images.squarespace-cdn.com/content/v1/538a8686e4b09c3b669dd717/1612143922667-WBK881CYC5VHIAFM649B/CR+Logos-high.gif?format=1500w",
-                // Hero: Demon Slayer flagship backdrop. Prior hero
-                // `askg3SMvhqEl4OL52YuvdtY40Yb.jpg` wasn't anime imagery at
-                // all — user flagged it as off-brand.
+                focusGif = null,
                 hero = "https://image.tmdb.org/t/p/original/3GQKYh6Trm8pxd2AypovoYQf4Ay.jpg",
-                clearLogo = "https://image.tmdb.org/t/p/original/fzN5Jok5Ig1eJ7gyNGoMhnLSCfh.jpg",
+                clearLogo = null,
                 sources = listOf(
                     addonCollectionSource("aio-metadata", "movie", "streaming.cru_movie"),
                     addonCollectionSource("aio-metadata", "series", "streaming.cru_series"),
@@ -1040,9 +1062,10 @@ class MediaRepository @Inject constructor(
             )
         )
 
-        return services + franchises + genres
+            return topLevelCatalogs + services + franchises + genres
+        }
     }
-    
+
     /**
      * Fetch home screen categories
      * Uses improved filters for better quality results:
