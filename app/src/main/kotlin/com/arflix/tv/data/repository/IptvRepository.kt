@@ -3333,7 +3333,12 @@ class IptvRepository @Inject constructor(
         val rest = xtreamChannels.filter { it.id !in alreadyPrioritized }
         val prioritized = favChannels + favGroupChannels + rest
 
-        val toFetch = prioritized.take(2000)
+        // Raised from 2000 → 8000. Providers that serve short_epg per-stream
+        // tend to tolerate this; the bottleneck is coroutine concurrency, not
+        // per-call weight. On a 52k-channel list this lifts EPG coverage from
+        // ~0.3% to ~2-3% of channels, and critically includes a far wider
+        // slice of non-favourite categories.
+        val toFetch = prioritized.take(8000)
         System.err.println("[EPG] Xtream short EPG: fetching ${toFetch.size}/${xtreamChannels.size} channels")
         if (toFetch.isEmpty()) return null
 

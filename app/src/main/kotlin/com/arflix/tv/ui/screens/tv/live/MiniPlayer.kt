@@ -55,8 +55,8 @@ fun MiniPlayerRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(start = 20.dp, end = 28.dp, top = 20.dp, bottom = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(20.dp),
+            .padding(start = 16.dp, end = 24.dp, top = 14.dp, bottom = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
         verticalAlignment = Alignment.Top,
     ) {
         VideoCard(exoPlayer = exoPlayer, channel = channel)
@@ -157,7 +157,7 @@ private fun InfoColumn(
 ) {
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         ChannelIdentityRow(channel = channel)
         NowCard(channel = channel, nowNext = nowNext)
@@ -173,41 +173,37 @@ private fun ChannelIdentityRow(channel: EnrichedChannel?) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (channel != null) {
-            ChannelLogo(channel = channel, size = 54.dp)
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            ChannelLogo(channel = channel, size = 48.dp)
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Text(
-                        text = "CH",
+                        text = "CH " + channel.number,
                         style = LiveType.SectionTag.copy(color = LiveColors.FgMute),
                     )
                     Text(
-                        text = channel.number.toString(),
-                        style = LiveType.NumberMono.copy(color = LiveColors.Fg, fontSize = 14.sp),
-                    )
-                    Text(
                         text = channel.genre.name.uppercase(),
-                        style = LiveType.SectionTag.copy(color = LiveColors.FgDim),
+                        style = LiveType.SectionTag.copy(color = LiveColors.FgMute),
                     )
                 }
                 Text(
                     text = channel.name,
-                    style = LiveType.ChannelName.copy(color = LiveColors.Fg),
+                    style = LiveType.ChannelName.copy(color = LiveColors.Fg, fontSize = 19.sp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     QualityBadge(channel.quality)
+                    channel.country?.takeIf { it != channel.lang }?.let { LangBadge(it) }
                     LangBadge(channel.lang)
-                    channel.country?.let { LangBadge(it) }
                 }
             }
         } else {
             Box(
                 modifier = Modifier
-                    .size(54.dp)
+                    .size(48.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(LiveColors.Panel),
             )
@@ -254,7 +250,7 @@ private fun NowCard(channel: EnrichedChannel?, nowNext: IptvNowNext?) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(LiveDims.CardRadius))
             .background(LiveColors.PanelRaised)
-            .padding(14.dp),
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(
@@ -264,13 +260,16 @@ private fun NowCard(channel: EnrichedChannel?, nowNext: IptvNowNext?) {
             Text("NOW", style = LiveType.SectionTag.copy(color = LiveColors.Accent))
             Text(
                 text = formatTimeWindow(now),
-                style = LiveType.TimeMono.copy(color = LiveColors.FgDim),
+                style = LiveType.TimeMono.copy(color = LiveColors.Fg),
             )
             Spacer(Modifier.weight(1f))
-            Text(
-                text = remainingLabel(now),
-                style = LiveType.TimeMono.copy(color = LiveColors.FgMute),
-            )
+            val remaining = remainingLabel(now)
+            if (remaining.isNotBlank()) {
+                Text(
+                    text = remaining,
+                    style = LiveType.TimeMono.copy(color = LiveColors.Accent),
+                )
+            }
         }
         Text(
             text = now?.title ?: channel?.name ?: "No programme data",
@@ -290,9 +289,9 @@ private fun NowCard(channel: EnrichedChannel?, nowNext: IptvNowNext?) {
         if (progress != null) {
             LinearProgressIndicator(
                 progress = { progress },
-                modifier = Modifier.fillMaxWidth().height(3.dp),
+                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
                 color = LiveColors.Accent,
-                trackColor = LiveColors.Divider,
+                trackColor = LiveColors.Panel,
             )
         }
     }
@@ -337,7 +336,7 @@ internal fun remainingLabel(p: IptvProgram?): String {
     val now = System.currentTimeMillis()
     if (now !in p.startUtcMillis..p.endUtcMillis) return ""
     val minsLeft = ((p.endUtcMillis - now) / 60_000L).coerceAtLeast(0L)
-    return "${minsLeft}m left"
+    return if (minsLeft >= 60) "${minsLeft / 60}h ${minsLeft % 60}m left" else "${minsLeft}m left"
 }
 
 internal fun progressOf(p: IptvProgram?): Float? {

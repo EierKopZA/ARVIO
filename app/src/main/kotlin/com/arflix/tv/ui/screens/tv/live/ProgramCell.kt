@@ -110,8 +110,16 @@ fun ProgramCell(
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (program.isLive(System.currentTimeMillis())) {
+                val nowMs = System.currentTimeMillis()
+                // A program starting within the last 24h that has never aired
+                // before is treated as NEW — cyan pill, matches mockup.
+                val isNewTag = (nowMs - program.startUtcMillis) in 0..24L * 60 * 60 * 1000L &&
+                    !program.isLive(nowMs)
+                if (program.isLive(nowMs)) {
                     Badge("LIVE", Color.White, LiveColors.LiveRed)
+                    Spacer(Modifier.size(6.dp))
+                } else if (isNewTag) {
+                    Badge("NEW", LiveColors.Bg, LiveColors.Accent)
                     Spacer(Modifier.size(6.dp))
                 }
                 Text(
