@@ -74,8 +74,8 @@ object LiveDims {
 
     // Mini-player is smaller than spec §3.2 to match the newer mockup —
     // leaves more vertical space for the EPG grid below.
-    val MiniPlayerWidth  = 400.dp
-    val MiniPlayerHeight = 225.dp
+    val MiniPlayerWidth  = 360.dp
+    val MiniPlayerHeight = 203.dp
 
     val EpgChannelColWidth = 340.dp
     // Tightened from 84 → 72 so ~2 extra rows fit on a 1080p frame.
