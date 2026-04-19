@@ -124,13 +124,18 @@ fun LiveTvScreen(
 
     val favSet = remember(state.snapshot.favoriteChannels) { state.snapshot.favoriteChannels.toSet() }
 
-    val filteredChannels by remember(enrichedState.value, selectedCategoryId, favSet, recents.value) {
-        derivedStateOf {
-            val enriched = enrichedState.value.all
-            val matcher = categoryMatcher(selectedCategoryId, favSet, recents.value)
-            enriched.filter(matcher)
-        }
+    // Filter runs on Default dispatcher; the result is published through a
+    // state so recomposition is never blocked on a 52k-channel scan. Without
+    // this, DPAD navigation triggers a recompose that stalls the UI thread
+    // long enough to ANR on large playlists.
+    val filteredChannelsState = remember { mutableStateOf<List<EnrichedChannel>>(emptyList()) }
+    LaunchedEffect(enrichedState.value, selectedCategoryId, favSet, recents.value) {
+        val enriched = enrichedState.value.all
+        val matcher = categoryMatcher(selectedCategoryId, favSet, recents.value)
+        val result = withContext(Dispatchers.Default) { enriched.filter(matcher) }
+        filteredChannelsState.value = result
     }
+    val filteredChannels = filteredChannelsState.value
 
     // Playing channel — default to the one we were navigated to, else the first
     // channel of the first non-empty category.

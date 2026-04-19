@@ -120,14 +120,17 @@ android {
             buildConfigField("Boolean", "ENABLE_ANALYTICS", "false")
         }
 
-        // Staging build type for testing release builds
+        // Staging build type: release-grade optimizations but signed with the
+        // debug keystore so the APK installs as an update over an existing
+        // debug build (preserves profile/IPTV/DataStore). NO applicationId
+        // suffix — it MUST resolve to the same package as debug/release.
         create("staging") {
             initWith(getByName("release"))
-            applicationIdSuffix = ".staging"
-            versionNameSuffix = "-staging"
+            versionNameSuffix = "-rc"
             signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
+            isJniDebuggable = false
 
-            // Enable crash reporting but disable analytics
             buildConfigField("Boolean", "ENABLE_CRASH_REPORTING", "true")
             buildConfigField("Boolean", "ENABLE_ANALYTICS", "false")
         }
