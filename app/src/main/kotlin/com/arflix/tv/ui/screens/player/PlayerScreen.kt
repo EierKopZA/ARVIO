@@ -632,9 +632,18 @@ fun PlayerScreen(
                                 }
                             }
 
+                            // Auto-advance when the startup URL is clearly dead — HTTP 4xx/5xx
+                            // or DNS/SSL/network failures. Even if the user manually picked this
+                            // source, a dead URL isn't something they "selected" — it should
+                            // skip to the next one rather than spin on a pulsing logo forever.
+                            val isUnrecoverableSource =
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ||
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NO_PERMISSION ||
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
                             if (!hasPlaybackStarted &&
                                 allowStartupSourceFallback &&
-                                !userSelectedSourceManually &&
+                                (!userSelectedSourceManually || isUnrecoverableSource) &&
                                 tryAdvanceToNextStream()
                             ) {
                                 return

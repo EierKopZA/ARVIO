@@ -1098,31 +1098,45 @@ class HomeViewModel @Inject constructor(
         // Don't restart if already running
         if (cwFetchJob?.isActive == true) return
         cwFetchJob = viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val resolvedCW = resolveContinueWatchingItems(forceFresh = true)
-                if (resolvedCW.isNotEmpty()) {
-                    val continueWatchingCategory = Category(
-                        id = "continue_watching",
-                        title = "Continue Watching",
-                        items = resolvedCW.map { it.toMediaItem() }
-                    )
-                    continueWatchingCategory.items.forEach { mediaRepository.cacheItem(it) }
-                    lastContinueWatchingItems = continueWatchingCategory.items
-                    lastContinueWatchingUpdateMs = SystemClock.elapsedRealtime()
-                    withContext(Dispatchers.Main) {
-                        val current = _uiState.value.categories.toMutableList()
-                        val cwIdx = current.indexOfFirst { it.id == "continue_watching" }
-                        if (cwIdx >= 0) {
-                            current[cwIdx] = continueWatchingCategory
-                        } else {
-                            current.add(0, continueWatchingCategory)
-                        }
-                        _uiState.value = _uiState.value.copy(categories = current)
-                    }
-                }
-            } catch (e: Exception) {
-                // CW fetch failed — keep existing CW row as-is
+            // FAST PATH — resolve from cached Trakt/local data and publish
+            // immediately. Avoids the 30–60s cold-refresh wait that used to
+            // leave the CW row empty for minutes (especially when the Trakt
+            // progress endpoint throttles with HTTP 429).
+            val instant = runCatching { resolveContinueWatchingItems(forceFresh = false) }
+                .getOrDefault(emptyList())
+            if (instant.isNotEmpty()) {
+                publishContinueWatching(instant)
             }
+
+            // SLOW PATH — do a freshness refresh in the background. If it
+            // returns something different, republish. Swallows transient
+            // Trakt 429s so the visible row doesn't blink back to empty.
+            val fresh = runCatching { resolveContinueWatchingItems(forceFresh = true) }
+                .getOrDefault(emptyList())
+            if (fresh.isNotEmpty() && fresh != instant) {
+                publishContinueWatching(fresh)
+            }
+        }
+    }
+
+    private suspend fun publishContinueWatching(items: List<ContinueWatchingItem>) {
+        val continueWatchingCategory = Category(
+            id = "continue_watching",
+            title = "Continue Watching",
+            items = items.map { it.toMediaItem() }
+        )
+        continueWatchingCategory.items.forEach { mediaRepository.cacheItem(it) }
+        lastContinueWatchingItems = continueWatchingCategory.items
+        lastContinueWatchingUpdateMs = SystemClock.elapsedRealtime()
+        withContext(Dispatchers.Main) {
+            val current = _uiState.value.categories.toMutableList()
+            val cwIdx = current.indexOfFirst { it.id == "continue_watching" }
+            if (cwIdx >= 0) {
+                current[cwIdx] = continueWatchingCategory
+            } else {
+                current.add(0, continueWatchingCategory)
+            }
+            _uiState.value = _uiState.value.copy(categories = current)
         }
     }
 
