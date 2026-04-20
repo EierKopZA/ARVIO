@@ -188,15 +188,15 @@ private fun SearchEntry(onClick: () -> Unit, expanded: Boolean) {
         modifier = Modifier
             .fillMaxWidth()
             .height(40.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (focused) LiveColors.FocusBg else LiveColors.Panel)
+            .onFocusChanged { focused = it.isFocused }
             .border(
-                width = if (focused) 2.dp else 0.dp,
+                width = if (focused) 3.dp else 0.dp,
                 color = if (focused) LiveColors.FocusRing else Color.Transparent,
                 shape = RoundedCornerShape(10.dp),
             )
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (focused) LiveColors.FocusBg else LiveColors.Panel)
             .focusable()
-            .onFocusChanged { focused = it.isFocused }
             .onKeyEvent { ev ->
                 if (ev.type == KeyEventType.KeyDown &&
                     (ev.key == Key.DirectionCenter || ev.key == Key.Enter)) {
@@ -289,15 +289,15 @@ private fun SidebarRow(
                 .fillMaxWidth()
                 .fillMaxHeight()
                 .padding(start = if (active) 12.dp else 10.dp, end = 12.dp)
+                .onFocusChanged { focused = it.isFocused }
                 .border(
-                    width = if (focused) 2.dp else 0.dp,
+                    width = if (focused) 3.dp else 0.dp,
                     color = if (focused) LiveColors.FocusRing else Color.Transparent,
                     shape = RoundedCornerShape(8.dp),
                 )
                 .clip(RoundedCornerShape(8.dp))
                 .background(if (focused) LiveColors.PanelRaised else bg)
                 .focusable()
-                .onFocusChanged { focused = it.isFocused }
                 .onKeyEvent { ev ->
                     if (ev.type == KeyEventType.KeyDown &&
                         (ev.key == Key.DirectionCenter || ev.key == Key.Enter)) {

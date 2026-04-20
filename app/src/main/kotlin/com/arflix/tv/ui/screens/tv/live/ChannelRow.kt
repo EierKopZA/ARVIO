@@ -74,8 +74,9 @@ fun ChannelRow(
         modifier = Modifier
             .fillMaxWidth()
             .height(LiveDims.EpgRowHeight)
+            .onFocusChanged { focused = it.isFocused }
             .border(
-                width = if (focused) 2.dp else 0.dp,
+                width = if (focused) 3.dp else 0.dp,
                 color = if (focused) LiveColors.FocusRing else Color.Transparent,
             )
             .background(if (focused) LiveColors.PanelRaised else bg)
@@ -83,8 +84,6 @@ fun ChannelRow(
                 onClick = onClick,
                 onLongClick = onFavoriteToggle,
             )
-            .focusable()
-            .onFocusChanged { focused = it.isFocused }
             .onKeyEvent { ev ->
                 if (ev.type == KeyEventType.KeyDown && ev.key == Key.Menu) {
                     onFavoriteToggle(); true

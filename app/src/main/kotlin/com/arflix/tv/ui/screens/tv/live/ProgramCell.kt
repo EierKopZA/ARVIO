@@ -67,22 +67,22 @@ fun ProgramCell(
         isNow -> LiveColors.Accent.copy(alpha = 0.45f)
         else -> Color.Transparent
     }
-    val borderWidth = if (focused) 2.dp else 1.dp
+    val borderWidth = if (focused) 3.dp else 1.dp
     Box(
         modifier = modifier
             .height(LiveDims.EpgRowHeight)
             .width(width)
             .padding(horizontal = 3.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(LiveDims.CellRadius))
-            .background(bg)
+            .onFocusChanged { focused = it.isFocused }
             .border(
                 width = borderWidth,
                 color = borderColor,
                 shape = RoundedCornerShape(LiveDims.CellRadius),
             )
+            .clip(RoundedCornerShape(LiveDims.CellRadius))
+            .background(bg)
             .alpha(if (isPast && !focused) 0.55f else 1f)
             .focusable()
-            .onFocusChanged { focused = it.isFocused }
             .onKeyEvent { ev ->
                 if (ev.type == KeyEventType.KeyDown &&
                     (ev.key == Key.DirectionCenter || ev.key == Key.Enter)) {
