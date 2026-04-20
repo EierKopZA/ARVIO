@@ -74,11 +74,11 @@ fun ChannelRow(
         modifier = Modifier
             .fillMaxWidth()
             .height(LiveDims.EpgRowHeight)
-            .background(bg)
             .border(
                 width = if (focused) 2.dp else 0.dp,
                 color = if (focused) LiveColors.FocusRing else Color.Transparent,
             )
+            .background(if (focused) LiveColors.PanelRaised else bg)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onFavoriteToggle,

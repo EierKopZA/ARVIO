@@ -73,18 +73,19 @@ object LiveType {
 }
 
 object LiveDims {
-    val SidebarExpanded  = 260.dp
-    val SidebarCollapsed = 76.dp
+    // Tightened to match the reference mockup: narrower sidebar, smaller
+    // mini-player, shorter rows — much more content per frame.
+    val SidebarExpanded  = 220.dp
+    val SidebarCollapsed = 68.dp
+    val SidebarRowHeight = 38.dp
 
-    // Mini-player is smaller than spec §3.2 to match the newer mockup —
-    // leaves more vertical space for the EPG grid below.
-    val MiniPlayerWidth  = 360.dp
-    val MiniPlayerHeight = 203.dp
+    val MiniPlayerWidth  = 300.dp
+    val MiniPlayerHeight = 170.dp
 
-    val EpgChannelColWidth = 340.dp
-    // Tightened from 84 → 72 so ~2 extra rows fit on a 1080p frame.
-    val EpgRowHeight       = 72.dp
-    val EpgHeaderHeight    = 40.dp
+    val EpgChannelColWidth = 300.dp
+    // 72 → 62 — ~11 rows fit on a 1080p frame.
+    val EpgRowHeight       = 62.dp
+    val EpgHeaderHeight    = 36.dp
     val EpgPxPerMinute     = 5
     val EpgHalfHourWidth   = 150.dp
 

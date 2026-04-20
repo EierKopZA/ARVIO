@@ -94,8 +94,8 @@ fun CategorySidebar(
             .fillMaxHeight()
             .background(LiveColors.PanelDeep)
             .onFocusChanged { if (it.hasFocus) onFocusEnter() }
-            .padding(horizontal = 10.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         SearchEntry(onClick = onOpenSearch, expanded = expanded)
         Spacer(Modifier.height(8.dp))
@@ -187,7 +187,7 @@ private fun SearchEntry(onClick: () -> Unit, expanded: Boolean) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(48.dp)
+            .height(40.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(if (focused) LiveColors.FocusBg else LiveColors.Panel)
             .border(
@@ -273,7 +273,7 @@ private fun SidebarRow(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(44.dp)
+            .height(LiveDims.SidebarRowHeight)
             .padding(start = indent),
     ) {
         if (active) {
@@ -289,13 +289,13 @@ private fun SidebarRow(
                 .fillMaxWidth()
                 .fillMaxHeight()
                 .padding(start = if (active) 12.dp else 10.dp, end = 12.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(bg)
                 .border(
                     width = if (focused) 2.dp else 0.dp,
                     color = if (focused) LiveColors.FocusRing else Color.Transparent,
                     shape = RoundedCornerShape(8.dp),
                 )
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (focused) LiveColors.PanelRaised else bg)
                 .focusable()
                 .onFocusChanged { focused = it.isFocused }
                 .onKeyEvent { ev ->

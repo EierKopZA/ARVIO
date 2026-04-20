@@ -55,8 +55,8 @@ fun MiniPlayerRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 24.dp, top = 14.dp, bottom = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(18.dp),
+            .padding(start = 12.dp, end = 20.dp, top = 8.dp, bottom = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.Top,
     ) {
         VideoCard(exoPlayer = exoPlayer, channel = channel)

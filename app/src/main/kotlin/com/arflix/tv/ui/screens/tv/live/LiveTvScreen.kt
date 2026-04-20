@@ -54,7 +54,7 @@ import com.arflix.tv.ui.screens.tv.TvUiState
 import com.arflix.tv.ui.screens.tv.TvViewModel
 import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.ui.components.AppTopBar
-import com.arflix.tv.ui.components.AppTopBarContentTopInset
+import com.arflix.tv.ui.components.AppTopBarHeight
 import com.arflix.tv.ui.components.SidebarItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -293,10 +293,12 @@ fun LiveTvScreen(
                 onAction = onNavigateToSettings,
             )
         } else {
+            // Content starts right under the top bar pills — no visible
+            // gap. The top bar itself has enough padding baked in.
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = AppTopBarContentTopInset),
+                    .padding(top = AppTopBarHeight),
             ) {
                 CategorySidebar(
                     tree = enrichedState.value.tree,
