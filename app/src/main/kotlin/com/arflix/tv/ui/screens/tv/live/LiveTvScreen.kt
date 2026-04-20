@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
@@ -173,11 +174,11 @@ fun LiveTvScreen(
         }
     }
 
-    // Sidebar stays expanded now that the whole TV page is dense enough.
-    // Collapse animation removed per user request — `sidebarExpanded` held
-    // as a const so existing callers still compile.
     val sidebarExpanded = true
     var searchOpen by rememberSaveable { mutableStateOf(false) }
+    // Full-screen playback mode — pressing OK on an EPG row expands the
+    // mini-player to cover the whole screen. Back collapses back to the grid.
+    var isFullScreen by rememberSaveable { mutableStateOf(initialStreamUrl != null) }
 
     // Focus requesters for the three regions.
     val sidebarFocus = remember { FocusRequester() }
@@ -271,7 +272,8 @@ fun LiveTvScreen(
     }
 
     BackHandler(enabled = searchOpen) { searchOpen = false }
-    BackHandler(enabled = !searchOpen) { onBack() }
+    BackHandler(enabled = !searchOpen && isFullScreen) { isFullScreen = false }
+    BackHandler(enabled = !searchOpen && !isFullScreen) { onBack() }
 
     Box(
         modifier = Modifier
@@ -280,7 +282,10 @@ fun LiveTvScreen(
     ) {
         // Content area starts below the translucent top bar so it doesn't get
         // overwritten.
-        if (state.isLoading && state.snapshot.channels.isEmpty()) {
+        if (isFullScreen) {
+            // Full-screen playback only — no grid rendered so the single
+            // PlayerView owns ExoPlayer.
+        } else if (state.isLoading && state.snapshot.channels.isEmpty()) {
             LoadingPane(message = state.loadingMessage, percent = state.loadingPercent)
         } else if (!state.isConfigured && state.snapshot.channels.isEmpty()) {
             EmptyStatePane(
@@ -324,7 +329,12 @@ fun LiveTvScreen(
                         channels = filteredChannels,
                         nowNext = state.snapshot.nowNext,
                         selectedChannelId = playingChannelId,
-                        onChannelSelect = { channel -> playingChannelId = channel.id },
+                        onChannelSelect = { channel ->
+                            playingChannelId = channel.id
+                            // Tapping a channel from the grid = "watch it" →
+                            // expand the tiny mini-player to full screen.
+                            isFullScreen = true
+                        },
                         onChannelFavoriteToggle = { id -> viewModel.toggleFavoriteChannel(id) },
                         favorites = favSet,
                         modifier = Modifier
@@ -335,17 +345,41 @@ fun LiveTvScreen(
             }
         }
 
-        // Translucent top bar — shows profile avatar + nav + clock without
-        // stealing focus from the sidebar/EPG. Sits above the content via
-        // the Box ordering; content below already has top padding so nothing
-        // overlaps.
-        AppTopBar(
-            selectedItem = SidebarItem.TV,
-            isFocused = false,
-            focusedIndex = -1,
-            profile = currentProfile,
-            profileCount = 1,
-        )
+        // Full-screen playback: same ExoPlayer, covers the entire screen.
+        AnimatedVisibility(
+            visible = isFullScreen && playingChannel != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
+            ) {
+                androidx.compose.ui.viewinterop.AndroidView(
+                    factory = { ctx ->
+                        androidx.media3.ui.PlayerView(ctx).apply {
+                            player = exoPlayer
+                            useController = false
+                        }
+                    },
+                    update = { it.player = exoPlayer },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+
+        // Top bar only shows when NOT in full-screen playback.
+        if (!isFullScreen) {
+            AppTopBar(
+                selectedItem = SidebarItem.TV,
+                isFocused = false,
+                focusedIndex = -1,
+                profile = currentProfile,
+                profileCount = 1,
+            )
+        }
 
         AnimatedVisibility(
             visible = searchOpen,

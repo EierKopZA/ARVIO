@@ -174,12 +174,14 @@ class IptvRepository @Inject constructor(
     private val epgEmptyRetryMs = 30_000L
     private val xtreamVodCacheMs = 6 * 60 * 60_000L
     private val iptvHttpClient: OkHttpClient by lazy {
-        // Used for full playlist/EPG loading – generous timeouts for large Xtream EPG feeds.
+        // Used for full playlist/EPG loading – generous timeouts for large
+        // Xtream EPG feeds. TX-4K serves a ~100 MB XMLTV dump so the read
+        // and call timeouts need to be minutes, not seconds.
         okHttpClient.newBuilder()
             .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(180, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)
-            .callTimeout(90, TimeUnit.SECONDS)
+            .callTimeout(300, TimeUnit.SECONDS)
             .build()
     }
     private val xtreamLookupHttpClient: OkHttpClient by lazy {
@@ -793,7 +795,10 @@ class IptvRepository @Inject constructor(
                         val pct = (90 + ((index * 8) / epgCandidatesToTry.size.coerceAtLeast(1))).coerceIn(90, 98)
                         onProgress(IptvLoadProgress("Loading full EPG (${index + 1}/${epgCandidatesToTry.size})...", pct))
                         val attempt = runCatching {
-                            withTimeoutOrNull(90_000L) { fetchAndParseEpg(epgUrl, channels) }
+                            // 300 s: some providers (like TX-4K) serve a 100 MB
+                            // XMLTV dump that needs 2-3 min on a TV's WiFi.
+                            // 90 s was aborting before the file finished.
+                            withTimeoutOrNull(300_000L) { fetchAndParseEpg(epgUrl, channels) }
                                 ?: throw java.util.concurrent.TimeoutException("EPG download timed out for ${epgUrl.take(80)}")
                         }
                         if (attempt.isSuccess) {

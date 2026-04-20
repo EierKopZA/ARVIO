@@ -80,8 +80,8 @@ object LiveDims {
     val SidebarCollapsed = 52.dp
     val SidebarRowHeight = 26.dp
 
-    val MiniPlayerWidth  = 220.dp
-    val MiniPlayerHeight = 124.dp
+    val MiniPlayerWidth  = 260.dp
+    val MiniPlayerHeight = 146.dp
 
     val EpgChannelColWidth = 220.dp
     val EpgRowHeight       = 42.dp

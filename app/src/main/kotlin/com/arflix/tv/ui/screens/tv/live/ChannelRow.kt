@@ -139,8 +139,8 @@ fun ChannelRow(
                     Icon(
                         imageVector = Icons.Filled.Star,
                         contentDescription = null,
-                        tint = LiveColors.Accent,
-                        modifier = Modifier.size(10.dp),
+                        tint = Color(0xFFFFC04A), // Golden star
+                        modifier = Modifier.size(11.dp),
                     )
                 }
             }
