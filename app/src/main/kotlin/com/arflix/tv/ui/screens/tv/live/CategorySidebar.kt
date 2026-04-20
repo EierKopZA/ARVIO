@@ -55,6 +55,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -94,6 +95,11 @@ fun CategorySidebar(
             .fillMaxHeight()
             .background(LiveColors.PanelDeep)
             .onFocusChanged { if (it.hasFocus) onFocusEnter() }
+            // Trap DPAD_LEFT at the sidebar edge so the key doesn't bubble
+            // up to the Activity and back out to the Android launcher.
+            .onPreviewKeyEvent { ev ->
+                ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionLeft
+            }
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
@@ -204,15 +210,15 @@ private fun SearchEntry(onClick: () -> Unit, expanded: Boolean) {
                 } else false
             }
             .pointerInput(Unit) { detectTapGestures(onTap = { onClick() }) }
-            .padding(horizontal = 14.dp),
+            .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Icon(
             imageVector = Icons.Filled.Search,
             contentDescription = "Search",
             tint = LiveColors.FgDim,
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier.size(14.dp),
         )
         if (expanded) {
             Text(
@@ -307,28 +313,27 @@ private fun SidebarRow(
                 .pointerInput(Unit) { detectTapGestures(onTap = { onClick() }) }
                 .padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             when {
                 leadingCode != null -> Text(
                     text = leadingCode,
                     style = LiveType.NumberMono.copy(
                         color = if (active) LiveColors.Accent else LiveColors.FgMute,
-                        fontSize = 12.sp,
                     ),
-                    modifier = Modifier.width(26.dp),
+                    modifier = Modifier.width(20.dp),
                 )
                 flagEmoji != null -> Text(
                     text = flagEmoji,
-                    style = LiveType.CatLabel.copy(fontSize = 18.sp),
+                    style = LiveType.CatLabel.copy(fontSize = 14.sp),
                 )
                 icon != null -> Icon(
                     imageVector = icon,
                     contentDescription = null,
                     tint = if (active) LiveColors.Accent else LiveColors.FgDim,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(14.dp),
                 )
-                else -> Spacer(Modifier.size(20.dp))
+                else -> Spacer(Modifier.size(14.dp))
             }
             if (expanded) {
                 Text(

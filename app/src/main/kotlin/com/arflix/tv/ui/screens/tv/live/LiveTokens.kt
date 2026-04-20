@@ -74,7 +74,9 @@ object LiveType {
 
 object LiveDims {
     // v3 — another ~30 % shrink. ~17 channel rows + mini-player fit on 1080 p.
-    val SidebarExpanded  = 170.dp
+    // 240 dp so the longest labels ("United Kingdom", "Czech Republic",
+    // "South Africa") render fully without ellipsis.
+    val SidebarExpanded  = 240.dp
     val SidebarCollapsed = 52.dp
     val SidebarRowHeight = 26.dp
 

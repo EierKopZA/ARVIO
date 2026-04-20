@@ -90,13 +90,13 @@ fun countryFlag(code: String?): String {
 /** Human-readable country / language-bucket name. Matches the mockup
  *  ("NL Netherlands", "US United States", …). */
 private val COUNTRY_NAMES = mapOf(
-    "NL" to "Netherlands", "UK" to "United Kingdom", "GB" to "United Kingdom",
-    "US" to "United States", "DE" to "Germany", "FR" to "France",
+    "NL" to "Netherlands", "UK" to "UK", "GB" to "UK",
+    "US" to "USA", "DE" to "Germany", "FR" to "France",
     "IT" to "Italy", "ES" to "Spain", "PT" to "Portugal", "BE" to "Belgium",
     "TR" to "Turkey", "IN" to "India", "BR" to "Brazil", "PL" to "Poland",
     "SE" to "Sweden", "DK" to "Denmark", "NO" to "Norway", "FI" to "Finland",
     "RU" to "Russia", "GR" to "Greece", "RO" to "Romania", "HU" to "Hungary",
-    "CZ" to "Czech Republic", "AT" to "Austria", "CH" to "Switzerland",
+    "CZ" to "Czechia", "AT" to "Austria", "CH" to "Switzerland",
     "IE" to "Ireland", "JP" to "Japan", "KR" to "South Korea", "CN" to "China",
     "TW" to "Taiwan", "HK" to "Hong Kong", "MX" to "Mexico", "CA" to "Canada",
     "AU" to "Australia", "NZ" to "New Zealand", "ZA" to "South Africa",
