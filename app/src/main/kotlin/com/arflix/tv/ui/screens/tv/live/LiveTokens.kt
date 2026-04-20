@@ -15,17 +15,15 @@ import com.arflix.tv.ui.theme.InterFontFamily
 // for the numeric/badge slots; can swap for bundled JBMono later).
 
 object LiveColors {
-    // Slightly lifted backgrounds for the layered "premium" look of the
-    // latest mockup. Panels now sit clearly above Bg; PanelRaised sits above
-    // Panel so the mini-player / NOW card / focused cells pop without relying
-    // on borders alone.
-    val Bg           = Color(0xFF0F1013)
-    val Panel        = Color(0xFF191A20)
-    val PanelDeep    = Color(0xFF14151A)
-    val PanelRaised  = Color(0xFF23242D)
-    // Subtle alternating stripe for EPG rows — just a few lumens above Bg
-    // so the grid feels "combed" without looking busy.
-    val RowStripe    = Color(0xFF121317)
+    // Unified near-black palette so the AppTopBar gradient blends cleanly
+    // into the TV page. Each step lifts just a few lumens above the last —
+    // enough for panels/cells to pop without creating a visible seam under
+    // the top bar.
+    val Bg           = Color(0xFF070709)
+    val Panel        = Color(0xFF121319)
+    val PanelDeep    = Color(0xFF0B0B0F)
+    val PanelRaised  = Color(0xFF1B1D25)
+    val RowStripe    = Color(0xFF0D0D11)
 
     val Divider       = Color(0x992B2D36)
     val DividerStrong = Color(0xE6333542)
@@ -61,33 +59,33 @@ object LiveColors {
 val LiveMono: FontFamily = FontFamily.Monospace
 
 object LiveType {
-    val ChannelName  = TextStyle(fontFamily = InterFontFamily, fontSize = 22.sp, fontWeight = FontWeight.W700, letterSpacing = (-0.44).sp)
-    val ProgramTitle = TextStyle(fontFamily = InterFontFamily, fontSize = 16.sp, fontWeight = FontWeight.W600, letterSpacing = (-0.16).sp)
-    val CellTitle    = TextStyle(fontFamily = InterFontFamily, fontSize = 14.sp, fontWeight = FontWeight.W600, letterSpacing = (-0.14).sp)
-    val BodySynopsis = TextStyle(fontFamily = InterFontFamily, fontSize = 13.sp, fontWeight = FontWeight.W400)
-    val CatLabel     = TextStyle(fontFamily = InterFontFamily, fontSize = 14.sp, fontWeight = FontWeight.W500)
-    val SectionTag   = TextStyle(fontFamily = LiveMono, fontSize = 10.sp, fontWeight = FontWeight.W700, letterSpacing = 1.6.sp)
-    val Badge        = TextStyle(fontFamily = LiveMono, fontSize = 10.sp, fontWeight = FontWeight.W700, letterSpacing = 1.2.sp)
-    val TimeMono     = TextStyle(fontFamily = LiveMono, fontSize = 12.sp, fontWeight = FontWeight.W500)
-    val NumberMono   = TextStyle(fontFamily = LiveMono, fontSize = 11.sp, fontWeight = FontWeight.W600)
+    // v4 — minimum readable at 10ft. 7sp is the absolute floor for the
+    // tightest tags/badges; no higher than 11sp anywhere on the TV page.
+    val ChannelName  = TextStyle(fontFamily = InterFontFamily, fontSize = 11.sp, fontWeight = FontWeight.W700, letterSpacing = (-0.22).sp)
+    val ProgramTitle = TextStyle(fontFamily = InterFontFamily, fontSize = 10.sp, fontWeight = FontWeight.W600, letterSpacing = (-0.10).sp)
+    val CellTitle    = TextStyle(fontFamily = InterFontFamily, fontSize = 9.sp, fontWeight = FontWeight.W600, letterSpacing = (-0.09).sp)
+    val BodySynopsis = TextStyle(fontFamily = InterFontFamily, fontSize = 8.sp, fontWeight = FontWeight.W400)
+    val CatLabel     = TextStyle(fontFamily = InterFontFamily, fontSize = 9.sp, fontWeight = FontWeight.W500)
+    val SectionTag   = TextStyle(fontFamily = LiveMono, fontSize = 7.sp, fontWeight = FontWeight.W700, letterSpacing = 1.0.sp)
+    val Badge        = TextStyle(fontFamily = LiveMono, fontSize = 7.sp, fontWeight = FontWeight.W700, letterSpacing = 0.6.sp)
+    val TimeMono     = TextStyle(fontFamily = LiveMono, fontSize = 8.sp, fontWeight = FontWeight.W500)
+    val NumberMono   = TextStyle(fontFamily = LiveMono, fontSize = 8.sp, fontWeight = FontWeight.W600)
 }
 
 object LiveDims {
-    // Tightened to match the reference mockup: narrower sidebar, smaller
-    // mini-player, shorter rows — much more content per frame.
-    val SidebarExpanded  = 220.dp
-    val SidebarCollapsed = 68.dp
-    val SidebarRowHeight = 38.dp
+    // v3 — another ~30 % shrink. ~17 channel rows + mini-player fit on 1080 p.
+    val SidebarExpanded  = 170.dp
+    val SidebarCollapsed = 52.dp
+    val SidebarRowHeight = 26.dp
 
-    val MiniPlayerWidth  = 300.dp
-    val MiniPlayerHeight = 170.dp
+    val MiniPlayerWidth  = 220.dp
+    val MiniPlayerHeight = 124.dp
 
-    val EpgChannelColWidth = 300.dp
-    // 72 → 62 — ~11 rows fit on a 1080p frame.
-    val EpgRowHeight       = 62.dp
-    val EpgHeaderHeight    = 36.dp
-    val EpgPxPerMinute     = 5
-    val EpgHalfHourWidth   = 150.dp
+    val EpgChannelColWidth = 220.dp
+    val EpgRowHeight       = 42.dp
+    val EpgHeaderHeight    = 26.dp
+    val EpgPxPerMinute     = 4
+    val EpgHalfHourWidth   = 120.dp
 
     val PanelRadius     = 12.dp
     val CardRadius      = 10.dp

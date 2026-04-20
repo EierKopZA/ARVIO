@@ -102,47 +102,45 @@ fun ChannelRow(
         // ─ channel number ────────────────────────────────────
         Box(
             modifier = Modifier
-                .width(56.dp)
-                .padding(start = 12.dp, end = 8.dp),
+                .width(48.dp)
+                .padding(start = 10.dp, end = 6.dp),
             contentAlignment = Alignment.CenterStart,
         ) {
             Text(
                 text = channel.number.toString(),
                 style = LiveType.NumberMono.copy(
                     color = if (isActive) LiveColors.Accent else LiveColors.FgMute,
-                    fontSize = 12.sp,
                 ),
             )
         }
 
         // ─ logo ──────────────────────────────────────────────
-        ChannelLogo(channel = channel, size = 44.dp)
+        ChannelLogo(channel = channel, size = 36.dp)
 
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(10.dp))
 
         // ─ name / program / progress / time ──────────────────
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = channel.name,
                     style = LiveType.CellTitle.copy(
                         color = if (isActive) LiveColors.Accent else LiveColors.Fg,
-                        fontSize = 14.sp,
                     ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 if (isFavorite) {
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(4.dp))
                     Icon(
                         imageVector = Icons.Filled.Star,
                         contentDescription = null,
                         tint = LiveColors.Accent,
-                        modifier = Modifier.size(12.dp),
+                        modifier = Modifier.size(10.dp),
                     )
                 }
             }
@@ -150,7 +148,6 @@ fun ChannelRow(
                 text = now?.title ?: "No info",
                 style = LiveType.BodySynopsis.copy(
                     color = if (now != null) LiveColors.FgDim else LiveColors.FgMute,
-                    fontSize = 12.sp,
                 ),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -160,15 +157,11 @@ fun ChannelRow(
             if (progress != null) {
                 LinearProgressIndicator(
                     progress = { progress },
-                    modifier = Modifier.width(140.dp).height(2.dp),
+                    modifier = Modifier.width(110.dp).height(2.dp),
                     color = LiveColors.Accent,
                     trackColor = LiveColors.Divider,
                 )
             }
-            Text(
-                text = now?.endUtcMillis?.let { formatClock(it) } ?: "",
-                style = LiveType.TimeMono.copy(color = LiveColors.FgMute, fontSize = 10.sp),
-            )
         }
 
         // ─ stacked badges (quality + lang) ───────────────────

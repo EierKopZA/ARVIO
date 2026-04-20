@@ -293,12 +293,14 @@ fun LiveTvScreen(
                 onAction = onNavigateToSettings,
             )
         } else {
-            // Content starts right under the top bar pills — no visible
-            // gap. The top bar itself has enough padding baked in.
+            // Content starts right under the pill row — 52 dp puts the first
+            // row/search field 4 dp below the pills. The remaining top-bar
+            // gradient tail is transparent enough to vanish over our near-
+            // black Bg so the two regions read as one surface.
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = AppTopBarHeight),
+                    .padding(top = 52.dp),
             ) {
                 CategorySidebar(
                     tree = enrichedState.value.tree,

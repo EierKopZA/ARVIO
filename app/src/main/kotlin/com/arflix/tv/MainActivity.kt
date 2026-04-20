@@ -128,6 +128,14 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var launcherContinueWatchingRepository: Lazy<LauncherContinueWatchingRepository>
 
+    // Prefetch IPTV early so the TV screen opens without a loading stall.
+    // IptvRepository is @Singleton; touching it at activity start warms the
+    // in-memory snapshot (and will trigger a disk-cache read + silent
+    // background refresh) so by the time the user navigates into the TV tab
+    // everything is already resident.
+    @Inject
+    lateinit var iptvRepository: Lazy<com.arflix.tv.data.repository.IptvRepository>
+
     private var jankStats: JankStats? = null
     private var pendingLauncherRequest by mutableStateOf<LauncherContinueWatchingRequest?>(null)
 
@@ -247,6 +255,21 @@ class MainActivity : ComponentActivity() {
                 authRepository.get().checkAuthState()
             }
             ArflixApplication.instance.scheduleTraktSyncIfNeeded()
+
+            // Warm IPTV cache early — so the TV page has its snapshot + EPG
+            // already resident when the user navigates into it, and no
+            // "loading channels" spinner ever shows.
+            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    val repo = iptvRepository.get()
+                    // Primes the snapshot from disk/memory; if missing,
+                    // kicks off a full refresh in the background.
+                    val cached = repo.getCachedSnapshotOrNull()
+                    if (cached == null || cached.channels.isEmpty()) {
+                        repo.loadSnapshot(forcePlaylistReload = false, forceEpgReload = false)
+                    }
+                }
+            }
         }
     }
 

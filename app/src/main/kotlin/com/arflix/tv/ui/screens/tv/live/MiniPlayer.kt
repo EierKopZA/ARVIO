@@ -55,8 +55,8 @@ fun MiniPlayerRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(start = 12.dp, end = 20.dp, top = 8.dp, bottom = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+            .padding(start = 10.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.Top,
     ) {
         VideoCard(exoPlayer = exoPlayer, channel = channel)
@@ -173,11 +173,11 @@ private fun ChannelIdentityRow(channel: EnrichedChannel?) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (channel != null) {
-            ChannelLogo(channel = channel, size = 48.dp)
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            ChannelLogo(channel = channel, size = 30.dp)
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
                         text = "CH " + channel.number,
@@ -190,7 +190,7 @@ private fun ChannelIdentityRow(channel: EnrichedChannel?) {
                 }
                 Text(
                     text = channel.name,
-                    style = LiveType.ChannelName.copy(color = LiveColors.Fg, fontSize = 19.sp),
+                    style = LiveType.ChannelName.copy(color = LiveColors.Fg),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -250,8 +250,8 @@ private fun NowCard(channel: EnrichedChannel?, nowNext: IptvNowNext?) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(LiveDims.CardRadius))
             .background(LiveColors.PanelRaised)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -289,7 +289,7 @@ private fun NowCard(channel: EnrichedChannel?, nowNext: IptvNowNext?) {
         if (progress != null) {
             LinearProgressIndicator(
                 progress = { progress },
-                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)),
                 color = LiveColors.Accent,
                 trackColor = LiveColors.Panel,
             )

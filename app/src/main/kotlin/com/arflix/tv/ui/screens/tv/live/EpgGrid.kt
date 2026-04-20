@@ -83,23 +83,28 @@ fun EpgGrid(
     val density = LocalDensity.current
     val pxPerMin = LiveDims.EpgPxPerMinute
 
+    // Window: now − 30 min → now + 2 h = 2.5 h total.
+    // Past is limited to 30 min so most of the ruler is future programmes
+    // (what you're about to watch), not what already aired.
     val windowStartMillis = remember { roundedWindowStart() }
-    val windowEndMillis = remember(windowStartMillis) { windowStartMillis + 10L * 60 * 60 * 1000 }
-    val slots = remember { buildHalfHourSlots(windowStartMillis, 20) }
+    val windowEndMillis = remember(windowStartMillis) {
+        windowStartMillis + 150L * 60 * 1000 // 2h30m
+    }
+    // 5 half-hour slots across the window.
+    val slots = remember { buildHalfHourSlots(windowStartMillis, 5) }
 
     // Shared horizontal scroll state between header and body rows.
     val hScroll = rememberScrollState()
-    // Vertical scroll state shared across channel column and program-cell column.
     val vListState = rememberLazyListState()
 
     val scope = rememberCoroutineScope()
 
-    // Auto-scroll horizontally so `now` is ~1h from the left edge (the spec's
-    // "now − 1h rounded" window places NOW at slot index 2).
+    // Park NOW ~30 dp from the left so only a thin slice of the past is
+    // visible and the rest of the viewport holds upcoming programmes.
     LaunchedEffect(Unit) {
         with(density) {
             val nowOffsetMin = ((System.currentTimeMillis() - windowStartMillis) / 60_000L).toInt()
-            val targetPx = (nowOffsetMin * pxPerMin).dp.toPx().toInt() - 220.dp.toPx().toInt()
+            val targetPx = (nowOffsetMin * pxPerMin).dp.toPx().toInt() - 30.dp.toPx().toInt()
             hScroll.scrollTo(targetPx.coerceAtLeast(0))
         }
     }
@@ -265,7 +270,7 @@ private fun ProgramsRow(
     isActive: Boolean,
     onClick: () -> Unit,
 ) {
-    val totalWidth = LiveDims.EpgHalfHourWidth * 20
+    val totalWidth = LiveDims.EpgHalfHourWidth * 5
     val nowMillis = System.currentTimeMillis()
     Box(
         modifier = Modifier
@@ -368,16 +373,16 @@ private fun buildHalfHourSlots(startMillis: Long, count: Int): List<TimeSlot> {
     return out
 }
 
-/** Round the window start down to the nearest half-hour, shifted 1h back. */
+/** Round down to the nearest half-hour, shifted 30 min back so the user
+ *  can still see what just aired without the past dominating the viewport. */
 private fun roundedWindowStart(): Long {
-    val now = System.currentTimeMillis()
     val cal = java.util.Calendar.getInstance()
-    cal.timeInMillis = now
+    cal.timeInMillis = System.currentTimeMillis()
     cal.set(java.util.Calendar.SECOND, 0)
     cal.set(java.util.Calendar.MILLISECOND, 0)
     val min = cal.get(java.util.Calendar.MINUTE)
     cal.set(java.util.Calendar.MINUTE, if (min >= 30) 30 else 0)
-    return cal.timeInMillis - 60L * 60_000L
+    return cal.timeInMillis - 30L * 60_000L
 }
 
 private fun programsInWindow(
