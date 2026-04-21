@@ -28,6 +28,7 @@ data class MediaItem(
     val badge: String? = null,
     val genreIds: List<Int> = emptyList(),
     val originalLanguage: String? = null,
+    val primaryNetworkLogo: String? = null,
     val isOngoing: Boolean = false,
     val totalEpisodes: Int? = null,
     val watchedEpisodes: Int? = null,

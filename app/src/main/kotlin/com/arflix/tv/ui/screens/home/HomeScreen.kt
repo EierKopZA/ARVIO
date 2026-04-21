@@ -998,6 +998,7 @@ private fun HeroSection(
                 val displayDate = currentItem.releaseDate?.takeIf { it.isNotEmpty() } ?: currentItem.year
                 val hasDuration = currentItem.duration.isNotEmpty() && currentItem.duration != "0m"
                 val hasGenre = genreText.isNotEmpty()
+                val primaryNetworkLogo = currentItem.primaryNetworkLogo?.takeIf { it.isNotBlank() }
                 val budgetText = remember(currentItem.mediaType, currentItem.budget) {
                     val budgetValue = currentItem.budget
                     if (currentItem.mediaType == MediaType.MOVIE && budgetValue != null && budgetValue > 0L) {
@@ -1069,10 +1070,31 @@ private fun HeroSection(
                         )
                     }
 
+                    if (primaryNetworkLogo != null) {
+                        if (displayDate.isNotEmpty() || hasGenre || hasDuration) {
+                            Text(
+                                text = "|",
+                                style = ArflixTypography.caption.copy(
+                                    fontSize = 14.sp,
+                                    shadow = textShadow
+                                ),
+                                color = Color.White.copy(alpha = 0.7f)
+                            )
+                        }
+                        AsyncImage(
+                            model = primaryNetworkLogo,
+                            contentDescription = "Primary streaming provider",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .height(18.dp)
+                                .width(56.dp)
+                        )
+                    }
+
                     val rating = currentItem.imdbRating.ifEmpty { currentItem.tmdbRating }
                     val ratingValue = parseRatingValue(rating)
                     if (ratingValue > 0f) {
-                        if (displayDate.isNotEmpty() || hasGenre || hasDuration) {
+                        if (displayDate.isNotEmpty() || hasGenre || hasDuration || primaryNetworkLogo != null) {
                             Text(
                                 text = "|",
                                 style = ArflixTypography.caption.copy(

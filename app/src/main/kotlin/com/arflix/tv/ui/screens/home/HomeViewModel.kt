@@ -125,7 +125,8 @@ class HomeViewModel @Inject constructor(
         val imdbRating: String,
         val tmdbRating: String,
         val budget: Long?,
-        val overview: String
+        val overview: String,
+        val primaryNetworkLogo: String? = null
     )
 
     private data class CategoryPaginationState(
@@ -308,6 +309,20 @@ class HomeViewModel @Inject constructor(
         } else {
             base
         }
+    }
+
+    private suspend fun resolvePrimaryNetworkLogo(mediaType: MediaType, mediaId: Int): String? {
+        return runCatching {
+            mediaRepository.getStreamingServices(
+                mediaType = mediaType,
+                mediaId = mediaId,
+                preferredRegion = Locale.getDefault().country
+            )
+        }.getOrNull()
+            ?.services
+            ?.firstOrNull()
+            ?.logoUrl
+            ?.takeIf { it.isNotBlank() }
     }
 
     private fun isEpisodeAlreadyAired(rawAirDate: String): Boolean {
@@ -2835,27 +2850,32 @@ class HomeViewModel @Inject constructor(
                     candidateOverview = details?.overview?.ifBlank { item.overview } ?: item.overview
                 )
                 val detailsKey = "${item.mediaType}_${item.id}"
+                val primaryNetworkLogo = resolvePrimaryNetworkLogo(item.mediaType, item.id)
                 heroDetailsCache[detailsKey] = HeroDetailsSnapshot(
                     duration = details?.duration.orEmpty(),
                     releaseDate = details?.releaseDate,
                     imdbRating = details?.imdbRating.orEmpty(),
                     tmdbRating = details?.tmdbRating.orEmpty(),
                     budget = details?.budget,
-                    overview = resolvedOverview
+                    overview = resolvedOverview,
+                    primaryNetworkLogo = primaryNetworkLogo
                 )
 
                 val latestHero = _uiState.value.heroItem
                 if (latestHero?.id == item.id && latestHero.mediaType == item.mediaType) {
+                    val updatedHero = latestHero.copy(
+                        duration = details?.duration?.ifEmpty { latestHero.duration } ?: latestHero.duration,
+                        releaseDate = details?.releaseDate ?: latestHero.releaseDate,
+                        imdbRating = details?.imdbRating?.ifEmpty { latestHero.imdbRating } ?: latestHero.imdbRating,
+                        tmdbRating = details?.tmdbRating?.ifEmpty { latestHero.tmdbRating } ?: latestHero.tmdbRating,
+                        budget = details?.budget ?: latestHero.budget,
+                        overview = resolvedOverview.ifBlank { latestHero.overview },
+                        primaryNetworkLogo = primaryNetworkLogo ?: latestHero.primaryNetworkLogo
+                    )
+                    mediaRepository.cacheItem(updatedHero)
                     _uiState.value = _uiState.value.copy(
-                        heroItem = latestHero.copy(
-                            duration = details?.duration?.ifEmpty { latestHero.duration } ?: latestHero.duration,
-                            releaseDate = details?.releaseDate ?: latestHero.releaseDate,
-                            imdbRating = details?.imdbRating?.ifEmpty { latestHero.imdbRating } ?: latestHero.imdbRating,
-                            tmdbRating = details?.tmdbRating?.ifEmpty { latestHero.tmdbRating } ?: latestHero.tmdbRating,
-                            budget = details?.budget ?: latestHero.budget,
-                            overview = resolvedOverview.ifBlank { latestHero.overview }
-                        ),
-                        heroOverviewOverride = resolvedOverview.ifBlank { latestHero.overview },
+                        heroItem = updatedHero,
+                        heroOverviewOverride = resolvedOverview.ifBlank { updatedHero.overview },
                         isHeroTransitioning = false
                     )
                 }
@@ -2894,15 +2914,18 @@ class HomeViewModel @Inject constructor(
             if (cachedDetails != null) {
                 val currentHero = _uiState.value.heroItem
                 if (currentHero?.id == item.id && currentHero.mediaType == item.mediaType) {
+                    val updatedHero = currentHero.copy(
+                        duration = cachedDetails.duration.ifEmpty { currentHero.duration },
+                        releaseDate = cachedDetails.releaseDate ?: currentHero.releaseDate,
+                        imdbRating = cachedDetails.imdbRating.ifEmpty { currentHero.imdbRating },
+                        tmdbRating = cachedDetails.tmdbRating.ifEmpty { currentHero.tmdbRating },
+                        budget = cachedDetails.budget ?: currentHero.budget,
+                        overview = cachedDetails.overview.ifBlank { currentHero.overview },
+                        primaryNetworkLogo = cachedDetails.primaryNetworkLogo ?: currentHero.primaryNetworkLogo
+                    )
+                    mediaRepository.cacheItem(updatedHero)
                     _uiState.value = _uiState.value.copy(
-                        heroItem = currentHero.copy(
-                            duration = cachedDetails.duration.ifEmpty { currentHero.duration },
-                            releaseDate = cachedDetails.releaseDate ?: currentHero.releaseDate,
-                            imdbRating = cachedDetails.imdbRating.ifEmpty { currentHero.imdbRating },
-                            tmdbRating = cachedDetails.tmdbRating.ifEmpty { currentHero.tmdbRating },
-                            budget = cachedDetails.budget ?: currentHero.budget,
-                            overview = cachedDetails.overview.ifBlank { currentHero.overview }
-                        ),
+                        heroItem = updatedHero,
                         heroOverviewOverride = cachedDetails.overview.ifBlank { currentHero.overview },
                         isHeroTransitioning = false
                     )
@@ -2928,6 +2951,7 @@ class HomeViewModel @Inject constructor(
                         mediaRepository.getTvDetails(item.id)
                     }
                 }.getOrNull()
+                val primaryNetworkLogo = resolvePrimaryNetworkLogo(item.mediaType, item.id)
                 val resolvedOverview = resolveBestOverview(
                     item = item,
                     candidateOverview = details?.overview?.ifBlank { currentHero.overview } ?: currentHero.overview
@@ -2939,7 +2963,8 @@ class HomeViewModel @Inject constructor(
                     imdbRating = details?.imdbRating?.ifEmpty { currentHero.imdbRating } ?: currentHero.imdbRating,
                     tmdbRating = details?.tmdbRating?.ifEmpty { currentHero.tmdbRating } ?: currentHero.tmdbRating,
                     budget = details?.budget ?: currentHero.budget,
-                    overview = resolvedOverview.ifBlank { currentHero.overview }
+                    overview = resolvedOverview.ifBlank { currentHero.overview },
+                    primaryNetworkLogo = primaryNetworkLogo ?: currentHero.primaryNetworkLogo
                 )
                 heroDetailsCache[detailsKey] = HeroDetailsSnapshot(
                     duration = details?.duration.orEmpty(),
@@ -2947,8 +2972,10 @@ class HomeViewModel @Inject constructor(
                     imdbRating = details?.imdbRating.orEmpty(),
                     tmdbRating = details?.tmdbRating.orEmpty(),
                     budget = details?.budget,
-                    overview = resolvedOverview
+                    overview = resolvedOverview,
+                    primaryNetworkLogo = primaryNetworkLogo
                 )
+                mediaRepository.cacheItem(updatedItem)
                 _uiState.value = _uiState.value.copy(
                     heroItem = updatedItem,
                     heroOverviewOverride = resolvedOverview.ifBlank { updatedItem.overview },
