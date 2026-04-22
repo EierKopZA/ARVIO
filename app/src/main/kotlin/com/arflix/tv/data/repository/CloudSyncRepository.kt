@@ -13,6 +13,8 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import javax.inject.Inject
@@ -39,6 +41,15 @@ class CloudSyncRepository @Inject constructor(
     private val watchlistRepository: WatchlistRepository
 ) {
     private val gson = Gson()
+
+    /**
+     * Serializes push/pull so they can never overlap. Without this, a manual
+     * Save in Settings that coincides with a realtime pull (or a startup pull
+     * that coincides with an auto-push) can interleave DataStore writes and
+     * leave the local cache diverged from the cloud — which showed up as
+     * "sync silently stops, needs logout/login to recover".
+     */
+    private val cloudSyncMutex = Mutex()
 
     /** Callback invoked after a successful push so realtime listeners can skip the echo. */
     var onPushCompleted: (() -> Unit)? = null
@@ -307,13 +318,13 @@ class CloudSyncRepository @Inject constructor(
     //  PUSH LOCAL STATE TO CLOUD
     // ══════════════════════════════════════════════════════════
 
-    suspend fun pushToCloud(): Result<Unit> {
+    suspend fun pushToCloud(): Result<Unit> = cloudSyncMutex.withLock {
         if (authRepository.getCurrentUserId().isNullOrBlank()) {
-            return Result.failure(IllegalStateException("Not logged in"))
+            return@withLock Result.failure(IllegalStateException("Not logged in"))
         }
         val payload = runCatching { buildCloudSnapshotJson() }.getOrElse {
             isPushDirty = true
-            return Result.failure(it)
+            return@withLock Result.failure(it)
         }
         val result = authRepository.saveAccountSyncPayload(payload)
         if (result.isSuccess) {
@@ -325,7 +336,7 @@ class CloudSyncRepository @Inject constructor(
             // cloud state until the user explicitly changes another setting.
             isPushDirty = true
         }
-        return result
+        result
     }
 
     // ══════════════════════════════════════════════════════════
@@ -336,14 +347,14 @@ class CloudSyncRepository @Inject constructor(
      * Restores the full cloud state to local repositories.
      * Returns [RestoreResult] indicating what happened.
      */
-    suspend fun pullFromCloud(): RestoreResult {
+    suspend fun pullFromCloud(): RestoreResult = cloudSyncMutex.withLock {
         val payloadResult = authRepository.loadAccountSyncPayload()
-        if (payloadResult.isFailure) return RestoreResult.FAILED
+        if (payloadResult.isFailure) return@withLock RestoreResult.FAILED
 
         val payload = payloadResult.getOrNull().orEmpty()
-        if (payload.isBlank()) return RestoreResult.NO_BACKUP
+        if (payload.isBlank()) return@withLock RestoreResult.NO_BACKUP
 
-        return runCatching {
+        runCatching {
             applyCloudPayload(payload)
         }.fold(
             onSuccess = { RestoreResult.RESTORED },

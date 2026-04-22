@@ -64,14 +64,24 @@ import com.arflix.tv.ui.components.QrCodeImage
 import com.arflix.tv.ui.components.Toast
 import com.arflix.tv.ui.components.ToastType as ComponentToastType
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.compositionLocalOf
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -130,9 +140,52 @@ internal fun cloudstreamPluginUnsupportedLabel(
 }
 
 /**
+ * Per-section registry of [BringIntoViewRequester]s keyed by the row's
+ * `contentFocusIndex`. Rows register via [settingsFocusSlot]; the scroll
+ * effect invokes `bringIntoView()` on the requester for the focused index.
+ *
+ * This is Compose's native mechanism for nested-scroll focus-follow; it
+ * correctly handles variable-height rows and arbitrary nesting depth
+ * between the slot and the scrollable ancestor, replacing the old ratio
+ * heuristic which failed on variable heights (the root cause of the
+ * "focus moves but screen doesn't scroll" bug, e.g. reaching "Account").
+ */
+@OptIn(ExperimentalFoundationApi::class)
+private class SettingsFocusTracker {
+    val requesters = mutableStateMapOf<Int, BringIntoViewRequester>()
+    fun clear() = requesters.clear()
+}
+
+private val LocalSettingsFocusTracker = compositionLocalOf<SettingsFocusTracker?> { null }
+
+/**
+ * Attach to the outermost modifier of a focusable settings row so that when
+ * it gains focus the scroll container brings it fully into view. Pass the
+ * same [index] the parent uses as its `focusedIndex == N` comparator.
+ *
+ * Sections that don't adopt this modifier fall back to the legacy ratio
+ * scroll — this modifier is purely additive, non-regressive.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun Modifier.settingsFocusSlot(index: Int): Modifier {
+    val tracker = LocalSettingsFocusTracker.current ?: return this
+    val requester = remember(index) { BringIntoViewRequester() }
+    DisposableEffect(tracker, index, requester) {
+        tracker.requesters[index] = requester
+        onDispose {
+            if (tracker.requesters[index] === requester) {
+                tracker.requesters.remove(index)
+            }
+        }
+    }
+    return this.bringIntoViewRequester(requester)
+}
+
+/**
  * Settings screen
  */
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
@@ -145,7 +198,7 @@ fun SettingsScreen(
     onSwitchProfile: () -> Unit = {},
     onBack: () -> Unit = {}
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isTouchDevice = LocalDeviceType.current.isTouchDevice()
 
     // Auto-start cloud auth if requested (e.g. from profile selection page)
@@ -237,6 +290,7 @@ fun SettingsScreen(
 
     val focusRequester = remember { FocusRequester() }
     val scrollState = rememberScrollState()
+    val focusTracker = remember { SettingsFocusTracker() }
     val openSubtitlePicker = {
         viewModel.refreshSubtitleOptions()
         val options = uiState.subtitleOptions
@@ -310,25 +364,55 @@ fun SettingsScreen(
         }
     }
     
-    // Reset content scroll when switching sections.
+    // Reset content scroll AND position cache when switching sections.
     LaunchedEffect(sectionIndex) {
+        focusTracker.clear()
         if (scrollState.value != 0) {
             scrollState.scrollTo(0)
         }
     }
 
     // Auto-scroll content to keep focused item visible in all sections.
-    LaunchedEffect(contentFocusIndex, sectionIndex, activeZone, uiState.catalogs.size, uiState.addons.size, uiState.cloudstreamRepositories.size) {
+    //
+    // Strategy: prefer the per-row [BringIntoViewRequester] registered via
+    // Modifier.settingsFocusSlot(...) — this is Compose's native mechanism
+    // for nested-scroll focus-follow and correctly handles variable-height
+    // rows and arbitrary nesting depth. Sections that haven't adopted the
+    // modifier fall back to the legacy ratio heuristic, which is imprecise
+    // but non-regressive.
+    //
+    // Triggers on focus/section change AND on the tracker map itself, so late
+    // layout registrations (which happen one frame after composition) still
+    // produce a correct scroll.
+    LaunchedEffect(
+        contentFocusIndex,
+        sectionIndex,
+        activeZone,
+        uiState.catalogs.size,
+        uiState.addons.size,
+        uiState.cloudstreamRepositories.size,
+        focusTracker.requesters[contentFocusIndex]
+    ) {
         if (activeZone != Zone.CONTENT) return@LaunchedEffect
-        if (scrollState.maxValue <= 0) return@LaunchedEffect
 
+        val requester = focusTracker.requesters[contentFocusIndex]
+        if (requester != null) {
+            // Native branch — handles all geometry correctly.
+            runCatching { requester.bringIntoView() }
+            return@LaunchedEffect
+        }
+
+        // Fallback: legacy ratio heuristic, only when positions are unknown
+        // and scrolling is actually possible.
+        val maxScroll = scrollState.maxValue
+        val currentScroll = scrollState.value
+        if (maxScroll <= 0) return@LaunchedEffect
         val currentSection = sections.getOrNull(sectionIndex).orEmpty()
         val maxIndex = sectionMaxIndex(currentSection).coerceAtLeast(1)
-
         val clampedFocus = contentFocusIndex.coerceIn(0, maxIndex)
         val ratio = clampedFocus.toFloat() / maxIndex.toFloat()
-        val targetScroll = (scrollState.maxValue * ratio).toInt().coerceIn(0, scrollState.maxValue)
-        if (abs(scrollState.value - targetScroll) > 24) {
+        val targetScroll = (maxScroll * ratio).toInt().coerceIn(0, maxScroll)
+        if (abs(currentScroll - targetScroll) > 24) {
             scrollState.animateScrollTo(targetScroll)
         }
     }
@@ -987,6 +1071,7 @@ fun SettingsScreen(
                         .verticalScroll(scrollState)
                         .padding(48.dp)
                 ) {
+                  CompositionLocalProvider(LocalSettingsFocusTracker provides focusTracker) {
                     when (sections[sectionIndex]) {
                         "general" -> GeneralSettings(
                             defaultSubtitle = uiState.defaultSubtitle,
@@ -1131,6 +1216,7 @@ fun SettingsScreen(
                             onInstallUpdate = { viewModel.installAppUpdateOrRequestPermission() }
                         )
                     }
+                  }
                 }
             }
         }
@@ -2463,7 +2549,8 @@ private fun GeneralSettings(
             subtitle = "Titles, descriptions and metadata",
             value = TMDB_LANGUAGES.firstOrNull { it.first == contentLanguage }?.second ?: contentLanguage,
             isFocused = focusedIndex == 0,
-            onClick = onContentLanguageClick
+            onClick = onContentLanguageClick,
+            modifier = Modifier.settingsFocusSlot(0)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
@@ -2472,7 +2559,8 @@ private fun GeneralSettings(
             subtitle = "Auto-select subtitle language",
             value = defaultSubtitle,
             isFocused = focusedIndex == 1,
-            onClick = onSubtitleClick
+            onClick = onSubtitleClick,
+            modifier = Modifier.settingsFocusSlot(1)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
@@ -2481,7 +2569,8 @@ private fun GeneralSettings(
             subtitle = "Preferred audio track",
             value = defaultAudioLanguage,
             isFocused = focusedIndex == 2,
-            onClick = onAudioLanguageClick
+            onClick = onAudioLanguageClick,
+            modifier = Modifier.settingsFocusSlot(2)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
@@ -2490,7 +2579,8 @@ private fun GeneralSettings(
             subtitle = "Text size for subtitles",
             value = subtitleSize,
             isFocused = focusedIndex == 3,
-            onClick = onSubtitleSizeClick
+            onClick = onSubtitleSizeClick,
+            modifier = Modifier.settingsFocusSlot(3)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
@@ -2499,7 +2589,8 @@ private fun GeneralSettings(
             subtitle = "Text color for subtitles",
             value = subtitleColor,
             isFocused = focusedIndex == 4,
-            onClick = onSubtitleColorClick
+            onClick = onSubtitleColorClick,
+            modifier = Modifier.settingsFocusSlot(4)
         )
 
         // ── Playback ──
@@ -2516,7 +2607,8 @@ private fun GeneralSettings(
             subtitle = "Start next episode automatically",
             isEnabled = autoPlayNext,
             isFocused = focusedIndex == 5,
-            onToggle = onAutoPlayToggle
+            onToggle = onAutoPlayToggle,
+            modifier = Modifier.settingsFocusSlot(5)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsToggleRow(
@@ -2524,7 +2616,8 @@ private fun GeneralSettings(
             subtitle = "Skip source picker with one source",
             isEnabled = autoPlaySingleSource,
             isFocused = focusedIndex == 6,
-            onToggle = onAutoPlaySingleSourceToggle
+            onToggle = onAutoPlaySingleSourceToggle,
+            modifier = Modifier.settingsFocusSlot(6)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
@@ -2533,7 +2626,8 @@ private fun GeneralSettings(
             subtitle = "Min quality for auto-play",
             value = autoPlayMinQuality,
             isFocused = focusedIndex == 7,
-            onClick = onAutoPlayMinQualityClick
+            onClick = onAutoPlayMinQualityClick,
+            modifier = Modifier.settingsFocusSlot(7)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsToggleRow(
@@ -2541,7 +2635,8 @@ private fun GeneralSettings(
             subtitle = "Play trailers in hero banner",
             isEnabled = trailerAutoPlay,
             isFocused = focusedIndex == 8,
-            onToggle = onTrailerAutoPlayToggle
+            onToggle = onTrailerAutoPlayToggle,
+            modifier = Modifier.settingsFocusSlot(8)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
@@ -2550,7 +2645,8 @@ private fun GeneralSettings(
             subtitle = "Off, Seamless, or Always",
             value = frameRateMatchingMode,
             isFocused = focusedIndex == 9,
-            onClick = onFrameRateMatchingClick
+            onClick = onFrameRateMatchingClick,
+            modifier = Modifier.settingsFocusSlot(9)
         )
 
         // ── Interface ──
@@ -2568,7 +2664,8 @@ private fun GeneralSettings(
             subtitle = "Landscape or poster cards",
             value = cardLayoutMode,
             isFocused = focusedIndex == 10,
-            onClick = onCardLayoutToggle
+            onClick = onCardLayoutToggle,
+            modifier = Modifier.settingsFocusSlot(10)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
@@ -2582,7 +2679,8 @@ private fun GeneralSettings(
                 else -> "Auto"
             },
             isFocused = focusedIndex == 11,
-            onClick = onDeviceModeClick
+            onClick = onDeviceModeClick,
+            modifier = Modifier.settingsFocusSlot(11)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsToggleRow(
@@ -2590,7 +2688,8 @@ private fun GeneralSettings(
             subtitle = "Auto-load last used profile",
             isEnabled = skipProfileSelection,
             isFocused = focusedIndex == 12,
-            onToggle = onSkipProfileSelectionToggle
+            onToggle = onSkipProfileSelectionToggle,
+            modifier = Modifier.settingsFocusSlot(12)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
@@ -2599,7 +2698,8 @@ private fun GeneralSettings(
             subtitle = "Choose 12-hour or 24-hour time",
             value = if (clockFormat == "12h") "12-hour" else "24-hour",
             isFocused = focusedIndex == 13,
-            onClick = onClockFormatClick
+            onClick = onClockFormatClick,
+            modifier = Modifier.settingsFocusSlot(13)
         )
         Spacer(modifier = Modifier.height(10.dp))
         // Home hero controls — issue #72. The movie Budget line on the hero banner
@@ -2609,7 +2709,8 @@ private fun GeneralSettings(
             subtitle = "Display the movie budget on the home hero banner",
             isEnabled = showBudget,
             isFocused = focusedIndex == 14,
-            onToggle = onShowBudgetToggle
+            onToggle = onShowBudgetToggle,
+            modifier = Modifier.settingsFocusSlot(14)
         )
 
         // ── Network ──
@@ -2627,7 +2728,8 @@ private fun GeneralSettings(
             subtitle = "Resolve API and stream requests",
             value = dnsProvider,
             isFocused = focusedIndex == 15,
-            onClick = onDnsProviderClick
+            onClick = onDnsProviderClick,
+            modifier = Modifier.settingsFocusSlot(15)
         )
 
         // ── Audio ──
@@ -2648,7 +2750,8 @@ private fun GeneralSettings(
                 else -> "+${volumeBoostDb} dB"
             },
             isFocused = focusedIndex == 16,
-            onClick = onVolumeBoostClick
+            onClick = onVolumeBoostClick,
+            modifier = Modifier.settingsFocusSlot(16)
         )
     }
 }
@@ -2689,7 +2792,8 @@ private fun IptvSettings(
             subtitle = if (playlists.isEmpty()) "Add up to 3 M3U / Xtream IPTV lists with names" else "Create another IPTV list",
             value = if (playlists.size >= 3) "FULL" else "ADD",
             isFocused = focusedIndex == 0,
-            onClick = onConfigure
+            onClick = onConfigure,
+            modifier = Modifier.settingsFocusSlot(0)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -2698,6 +2802,7 @@ private fun IptvSettings(
             val rowIndex = index + 1
             Row(
                 modifier = Modifier
+                    .settingsFocusSlot(rowIndex)
                     .fillMaxWidth()
                     .background(
                         if (focusedIndex == rowIndex) Color.White.copy(alpha = 0.08f) else Color.Transparent,
@@ -2772,7 +2877,8 @@ private fun IptvSettings(
             subtitle = refreshSubtitle,
             value = if (isLoading) "LOADING" else "REFRESH",
             isFocused = focusedIndex == playlists.size + 1,
-            onClick = onRefresh
+            onClick = onRefresh,
+            modifier = Modifier.settingsFocusSlot(playlists.size + 1)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -2783,7 +2889,8 @@ private fun IptvSettings(
             subtitle = if (playlists.isEmpty()) "No playlists configured" else "Remove playlists, EPG and favorites",
             value = if (playlists.isEmpty()) "EMPTY" else "DELETE",
             isFocused = focusedIndex == playlists.size + 2,
-            onClick = onDelete
+            onClick = onDelete,
+            modifier = Modifier.settingsFocusSlot(playlists.size + 2)
         )
 
         if (isLoading && !progressText.isNullOrBlank()) {
@@ -2849,10 +2956,11 @@ private fun SettingsRow(
     subtitle: String,
     value: String,
     isFocused: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable { onClick() }
             .background(
@@ -2911,10 +3019,11 @@ private fun SettingsToggleRow(
     subtitle: String,
     isEnabled: Boolean,
     isFocused: Boolean,
-    onToggle: (Boolean) -> Unit
+    onToggle: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable { onToggle(!isEnabled) }
             .background(
@@ -3003,7 +3112,8 @@ private fun CatalogsSettings(
             subtitle = "Import a Trakt or MDBList catalog URL",
             value = "ADD",
             isFocused = focusedIndex == 0,
-            onClick = onAddCatalog
+            onClick = onAddCatalog,
+            modifier = Modifier.settingsFocusSlot(0)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -3031,6 +3141,7 @@ private fun CatalogsSettings(
 
             Row(
                 modifier = Modifier
+                    .settingsFocusSlot(rowFocusIndex)
                     .fillMaxWidth()
                     .background(
                         if (isRowFocused) Color.White.copy(alpha = 0.08f) else Color.Transparent,
@@ -3145,7 +3256,7 @@ private fun StremioAddonsSettings(
 ) {
     Column {
         Text(
-            text = "Stremio Addons",
+            text = "Addons",
             style = ArflixTypography.sectionTitle,
             color = TextPrimary,
             modifier = Modifier.padding(bottom = 24.dp)
@@ -3153,7 +3264,7 @@ private fun StremioAddonsSettings(
 
         if (addons.isEmpty()) {
             Text(
-                text = "No Stremio addons installed",
+                text = "No addons installed",
                 style = ArflixTypography.body,
                 color = TextSecondary
             )
@@ -3166,7 +3277,8 @@ private fun StremioAddonsSettings(
                     focusedAction = if (focusedIndex == index) focusedActionIndex else -1,
                     canDelete = canDelete,
                     onToggle = { onToggleAddon(addon.id) },
-                    onDelete = { onDeleteAddon(addon.id) }
+                    onDelete = { onDeleteAddon(addon.id) },
+                    modifier = Modifier.settingsFocusSlot(index)
                 )
                 if (index < addons.size - 1) {
                     Spacer(modifier = Modifier.height(12.dp))
@@ -3179,6 +3291,7 @@ private fun StremioAddonsSettings(
         // Add custom addon button
         Row(
             modifier = Modifier
+                .settingsFocusSlot(addons.size)
                 .fillMaxWidth()
                 .clickable(onClick = onAddCustomAddon)
                 .background(
@@ -3202,7 +3315,7 @@ private fun StremioAddonsSettings(
             )
             Spacer(modifier = Modifier.width(12.dp))
             Text(
-                text = "Add Stremio Addon",
+                text = "Add Addon",
                 style = ArflixTypography.button,
                 color = Pink
             )
@@ -3251,7 +3364,8 @@ private fun CloudstreamSettings(
                         isFocused = focusedIndex == index,
                         focusedAction = if (focusedIndex == index) focusedActionIndex else -1,
                         onToggle = { onTogglePlugin(plugin.id) },
-                        onDelete = { onRemovePlugin(plugin.id) }
+                        onDelete = { onRemovePlugin(plugin.id) },
+                        modifier = Modifier.settingsFocusSlot(index)
                     )
                     if (index < plugins.size - 1) {
                         Spacer(modifier = Modifier.height(12.dp))
@@ -3276,7 +3390,8 @@ private fun CloudstreamSettings(
                         isFocused = focusedIndex == rowIndex,
                         focusedAction = if (focusedIndex == rowIndex) focusedActionIndex else -1,
                         onConfigure = { onConfigureRepo(repo.url) },
-                        onDelete = { onDeleteRepo(repo.url) }
+                        onDelete = { onDeleteRepo(repo.url) },
+                        modifier = Modifier.settingsFocusSlot(rowIndex)
                     )
                     if (index < repositories.size - 1) {
                         Spacer(modifier = Modifier.height(12.dp))
@@ -3290,6 +3405,7 @@ private fun CloudstreamSettings(
         val addRowIndex = plugins.size + repositories.size
         Row(
             modifier = Modifier
+                .settingsFocusSlot(addRowIndex)
                 .fillMaxWidth()
                 .clickable(onClick = onAddRepository)
                 .background(
@@ -3329,7 +3445,8 @@ private fun AddonRow(
     focusedAction: Int = -1, // 0 = toggle, 1 = delete
     canDelete: Boolean = true,
     onToggle: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val canToggle = !(addon.id == "opensubtitles" && addon.type == com.arflix.tv.data.model.AddonType.SUBTITLE)
     val isToggleFocused = canToggle && isFocused && focusedAction == 0
@@ -3337,7 +3454,7 @@ private fun AddonRow(
     val isEnabled = addon.isEnabled
 
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable { onToggle() }
             .background(
@@ -3462,14 +3579,15 @@ private fun CloudstreamInstalledPluginRow(
     isFocused: Boolean,
     focusedAction: Int = -1,
     onToggle: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val isToggleFocused = isFocused && focusedAction == 0
     val isDeleteFocused = isFocused && focusedAction == 1
     val isEnabled = addon.isEnabled
 
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable { onToggle() }
             .background(
@@ -3601,12 +3719,13 @@ private fun CloudstreamRepositoryRow(
     isFocused: Boolean,
     focusedAction: Int = -1,
     onConfigure: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val isConfigureFocused = isFocused && focusedAction == 0
     val isDeleteFocused = isFocused && focusedAction == 1
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable { onConfigure() }
             .background(
@@ -4065,6 +4184,7 @@ private fun AccountsSettings(
                 onConnectCloud()
             },
             onDisconnect = onDisconnectCloud,
+            modifier = Modifier.settingsFocusSlot(0),
             expirationText = cloudHint
         )
 
@@ -4081,6 +4201,7 @@ private fun AccountsSettings(
             isFocused = focusedIndex == 1,
             onConnect = { if (isTraktPolling) onCancelTrakt() else onConnectTrakt() },
             onDisconnect = onDisconnectTrakt,
+            modifier = Modifier.settingsFocusSlot(1),
             expirationText = null  // Don't show expiration - Trakt tokens auto-refresh
         )
 
@@ -4106,7 +4227,8 @@ private fun AccountsSettings(
             isFocused = focusedIndex == 2,
             onClick = {
                 if (downloadedApkPath != null) onInstallUpdate() else onCheckUpdates()
-            }
+            },
+            modifier = Modifier.settingsFocusSlot(2)
         )
     }
 }
@@ -4185,10 +4307,11 @@ private fun SettingsActionRow(
     description: String,
     actionLabel: String,
     isFocused: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable { onClick() }
             .background(
@@ -4258,11 +4381,12 @@ private fun AccountRow(
     isFocused: Boolean,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
+    modifier: Modifier = Modifier,
     secondaryActionLabel: String? = null,
     expirationText: String? = null
 ) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(enabled = !isPolling) {
                 if (isConnected) onDisconnect() else onConnect()

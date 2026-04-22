@@ -62,23 +62,24 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
         super.onCreate()
         instance = this
 
-        // Initialize OkHttp disk cache before any network calls
+        // OkHttpProvider.init(context) just stashes the app context; it does
+        // not build the OkHttpClient. Safe to keep on the main thread — it's
+        // a single volatile assignment.
         OkHttpProvider.init(this)
 
-        // Flavor-neutral CloudStream init. The sideload flavor wires arvio's
-        // OkHttpClient into the plugin runtime's global HTTP accessor; the
-        // play flavor's counterpart is a no-op, keeping the play APK clean
-        // of any dynamic-code-loading surface required by the CS plugin
-        // protocol.
-        com.arflix.tv.cloudstream.initCloudstream(OkHttpProvider.client)
-
-        // Warm DNS for TMDB image CDN so the very first image request on the home
-        // screen doesn't block on DNS-over-HTTPS bootstrap + resolution. Without
-        // this, the first batch of card images can take 1-3s extra on cold start
-        // while DoH resolves image.tmdb.org. The SettingsViewModel already does
-        // this when the DNS provider changes; doing it at app start ensures the
-        // first home load is fast regardless of provider.
+        // Defer both the OkHttpClient lazy build AND the CloudStream HTTP
+        // bridge to IO. Accessing OkHttpProvider.client triggers a ~tens-of-ms
+        // disk-cache probe (File(cacheDir, "http_cache")); keeping that off
+        // the main thread trims cold-start jank on first frame. Plugins loaded
+        // later acquire the client through the same lazy path, so ordering is
+        // preserved without blocking here.
+        //
+        // Warm DNS for TMDB image CDN so the very first image request on the
+        // home screen doesn't block on DoH bootstrap + resolution.
         appScope.launch(Dispatchers.IO) {
+            runCatching {
+                com.arflix.tv.cloudstream.initCloudstream(OkHttpProvider.client)
+            }
             runCatching { OkHttpProvider.dns.lookup("image.tmdb.org") }
         }
 

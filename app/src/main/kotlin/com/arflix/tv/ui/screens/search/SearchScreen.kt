@@ -40,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -106,7 +107,7 @@ fun SearchScreen(
     onSwitchProfile: () -> Unit = {},
     onBack: () -> Unit = {}
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val usePosterCards = rememberCardLayoutMode() == CardLayoutMode.POSTER
     val configuration = LocalConfiguration.current
     val isCompactHeight = configuration.screenHeightDp <= 780
@@ -156,7 +157,15 @@ fun SearchScreen(
         }
     }
     
-    LaunchedEffect(Unit) { searchFocusRequester.requestFocus(); suppressSelectUntilMs = SystemClock.elapsedRealtime() + 150L }
+    LaunchedEffect(Unit) {
+        // FocusRequester can throw IllegalStateException if the target composable
+        // hasn't been placed yet (e.g. zero-sized keyboard on cold start, or when
+        // the screen is composed then immediately navigated away). Swallow that
+        // specific case so it doesn't surface to the user as a crash — TalkBack
+        // focus will re-claim on next frame.
+        runCatching { searchFocusRequester.requestFocus() }
+        suppressSelectUntilMs = SystemClock.elapsedRealtime() + 150L
+    }
 
     val showFilters = uiState.query.isEmpty()
 

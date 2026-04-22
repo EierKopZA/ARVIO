@@ -72,7 +72,11 @@ fun ProgramCell(
         modifier = modifier
             .height(LiveDims.EpgRowHeight)
             .width(width)
-            .padding(horizontal = 3.dp, vertical = 6.dp)
+            // Outer gutter was 3dp×2 + inner 10dp×2 = 26dp of horizontal
+            // overhead. On a 60dp min-width block that left only ~34dp for
+            // text + badges, which the LIVE pill alone consumed — leaving
+            // blocks visually empty. Total horizontal overhead is now 8dp.
+            .padding(horizontal = 1.dp, vertical = 3.dp)
             .onFocusChanged { focused = it.isFocused }
             .border(
                 width = borderWidth,
@@ -90,7 +94,7 @@ fun ProgramCell(
                 } else false
             }
             .pointerInput(Unit) { detectTapGestures(onTap = { onClick() }) }
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .padding(horizontal = 6.dp, vertical = 4.dp),
     ) {
         if (isNow) {
             Box(

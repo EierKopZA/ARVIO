@@ -294,11 +294,15 @@ fun CollectionDetailsScreen(
                         if (isSidebarFocused) return@onPreviewKeyEvent true
                         if (isTabBarFocused) { moveToSidebar(); true }
                         else {
-                            val firstVisibleIndex = gridState.firstVisibleItemIndex
-                            if (firstVisibleIndex == 0 && focusedGridIndex < gridColumns) {
-                                // From the grid's top row, go to the tab bar
-                                // so Movies/Series chips are reachable before
-                                // the sidebar.
+                            // Old logic required (firstVisibleIndex == 0 &&
+                            // focusedGridIndex < gridColumns). After scrolling
+                            // down and back up, the grid still reports a
+                            // non-zero firstVisibleItemIndex briefly, so UP
+                            // was swallowed and focus got stuck at the top of
+                            // the visible viewport. Trusting focusedGridIndex
+                            // alone mirrors how every other row-based screen
+                            // (home, search) handles the edge case.
+                            if (focusedGridIndex < gridColumns) {
                                 moveToTabBar()
                             } else false
                         }

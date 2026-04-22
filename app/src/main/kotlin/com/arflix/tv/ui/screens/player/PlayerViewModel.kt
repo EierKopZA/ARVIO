@@ -69,7 +69,14 @@ data class PlayerUiState(
     val volumeBoostDb: Int = 0,
     // Skip intro/recap
     val activeSkipInterval: SkipInterval? = null,
-    val skipIntervalDismissed: Boolean = false
+    val skipIntervalDismissed: Boolean = false,
+    // Source-loading progress surfaced to the loading UI. When streams are
+    // being resolved progressively, this fills from 0f→1f as addons complete.
+    // Null when progress is not meaningful (e.g. trailer loads, cached hits).
+    val streamProgress: Float? = null,
+    // Human-readable phase label for the loading UI (e.g. "Searching 3/8
+    // sources"). Null when progress isn't meaningful.
+    val streamLoadPhase: String? = null
 )
 
 @HiltViewModel
@@ -376,7 +383,9 @@ class PlayerViewModel @Inject constructor(
                     isLoadingStreams = true,
                     savedPosition = resumeData.positionMs,
                     error = null,
-                    isSetupError = false
+                    isSetupError = false,
+                    streamProgress = 0f,
+                    streamLoadPhase = if (streamingAddonCount > 0) "Searching 0/$streamingAddonCount sources" else "Preparing sources"
                 )
 
                 val preferredLanguage = _uiState.value.preferredAudioLanguage.ifBlank { resolvePreferredAudioLanguage() }
@@ -429,13 +438,28 @@ class PlayerViewModel @Inject constructor(
                         }
                     } else null
 
+                    val total = progressive.totalAddons.coerceAtLeast(1)
+                    val completed = progressive.completedAddons.coerceIn(0, total)
+                    val progressFraction = if (progressive.isFinal) {
+                        1f
+                    } else {
+                        (completed.toFloat() / total.toFloat()).coerceIn(0f, 0.99f)
+                    }
+                    val phaseLabel = when {
+                        progressive.isFinal -> null
+                        mergedStreams.isNotEmpty() -> "Found ${mergedStreams.size} sources ($completed/$total)"
+                        else -> "Searching $completed/$total sources"
+                    }
+
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         isLoadingStreams = !progressive.isFinal && mergedStreams.isEmpty(),
                         streams = mergedStreams,
                         subtitles = progressive.subtitles,
                         error = errorMessage,
-                        isSetupError = progressive.isFinal && mergedStreams.isEmpty() && streamingAddonCount == 0
+                        isSetupError = progressive.isFinal && mergedStreams.isEmpty() && streamingAddonCount == 0,
+                        streamProgress = if (progressive.isFinal) null else progressFraction,
+                        streamLoadPhase = phaseLabel
                     )
 
                     // Cache hit path: first emission is already final (prefetch completed)
@@ -487,6 +511,8 @@ class PlayerViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     isLoadingStreams = false,
+                    streamProgress = null,
+                    streamLoadPhase = null,
                     error = e.message
                 )
             }

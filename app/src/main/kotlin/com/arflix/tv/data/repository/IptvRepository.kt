@@ -3327,9 +3327,13 @@ class IptvRepository @Inject constructor(
         // Prioritize: favorite channels first, then favorite groups, then rest.
         // Deduplicate stream IDs so we don't fetch the same channel twice.
         val xtreamChannels = channels.filter { resolveXtreamStreamId(it) != null }
-        val favoriteChannelIds = runCatching { kotlinx.coroutines.runBlocking { observeFavoriteChannels().first() } }
+        // We're already inside a suspend fun — runBlocking here was pinning
+        // the calling coroutine's dispatcher thread while it waited on the
+        // DataStore flow. Direct suspension lets the scheduler pick up other
+        // work during the (typically ~10 ms) DataStore read.
+        val favoriteChannelIds = runCatching { observeFavoriteChannels().first() }
             .getOrDefault(emptyList()).toSet()
-        val favoriteGroupNames = runCatching { kotlinx.coroutines.runBlocking { observeFavoriteGroups().first() } }
+        val favoriteGroupNames = runCatching { observeFavoriteGroups().first() }
             .getOrDefault(emptyList()).toSet()
 
         val favChannels = xtreamChannels.filter { it.id in favoriteChannelIds }

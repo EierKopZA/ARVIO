@@ -51,6 +51,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -168,7 +169,7 @@ fun DetailsScreen(
     onSwitchProfile: () -> Unit = {},
     onBack: () -> Unit
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val usePosterCards = rememberCardLayoutMode() == CardLayoutMode.POSTER
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -1244,7 +1245,8 @@ private fun DetailsContent(
                     ) {
                         standardItemsIndexed(
                             episodes,
-                            key = { index, ep -> "mob_ep_${ep.seasonNumber}_${ep.episodeNumber}_$index" }
+                            key = { index, ep -> "mob_ep_${ep.seasonNumber}_${ep.episodeNumber}_$index" },
+                            contentType = { _, _ -> "episode" }
                         ) { index, episode ->
                             EpisodeCard(
                                 episode = episode,
@@ -1276,7 +1278,8 @@ private fun DetailsContent(
                     ) {
                         standardItemsIndexed(
                             cast,
-                            key = { index, c -> "mob_cast_${c.id}_$index" }
+                            key = { index, c -> "mob_cast_${c.id}_$index" },
+                            contentType = { _, _ -> "cast" }
                         ) { index, castMember ->
                             CircularCastCard(
                                 castMember = castMember,
@@ -1308,7 +1311,8 @@ private fun DetailsContent(
                     ) {
                         standardItemsIndexed(
                             similar,
-                            key = { index, m -> "mob_sim_${m.mediaType.name}_${m.id}_$index" }
+                            key = { index, m -> "mob_sim_${m.mediaType.name}_${m.id}_$index" },
+                            contentType = { _, _ -> "similar" }
                         ) { index, mediaItem ->
                             SimilarMediaCard(
                                 item = mediaItem,
@@ -1342,7 +1346,8 @@ private fun DetailsContent(
                     ) {
                         standardItemsIndexed(
                             reviews,
-                            key = { index, r -> "mob_review_${r.author}_$index" }
+                            key = { index, r -> "mob_review_${r.author}_$index" },
+                            contentType = { _, _ -> "review" }
                         ) { index, review ->
                             ReviewCard(
                                 review = review,

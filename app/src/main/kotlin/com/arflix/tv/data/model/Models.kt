@@ -128,8 +128,14 @@ data class Category(
 ) : Serializable
 
 /**
- * Stream source from addons - enhanced with behavior hints like NuvioStreaming
+ * Stream source from addons - enhanced with behavior hints.
+ *
+ * Marked @Immutable so Compose can skip recomposition on stable list renders
+ * in the source picker. All fields are read-only primitives or nested
+ * immutable types (StreamBehaviorHints is also @Immutable; subtitles/sources
+ * lists are constructed once and treated as immutable by convention).
  */
+@Immutable
 data class StreamSource(
     val source: String,
     val addonName: String,
@@ -148,8 +154,10 @@ data class StreamSource(
 ) : Serializable
 
 /**
- * Stream behavior hints - matches Stremio protocol
+ * Stream behavior hints - all primitive / immutable fields, safe for
+ * @Immutable so it composes stably inside a StreamSource list.
  */
+@Immutable
 data class StreamBehaviorHints(
     val notWebReady: Boolean = false,
     val cached: Boolean? = null,

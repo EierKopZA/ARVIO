@@ -164,6 +164,10 @@ import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.dash.DashMediaSource
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 
 /**
  * Netflix-style Player UI for Android TV
@@ -1863,7 +1867,12 @@ fun PlayerScreen(
                     )
                 }
 
-                PulsingLogo(logoUrl = uiState.logoUrl, title = uiState.title)
+                PulsingLogo(
+                    logoUrl = uiState.logoUrl,
+                    title = uiState.title,
+                    progress = uiState.streamProgress,
+                    phaseLabel = uiState.streamLoadPhase
+                )
             }
         }
 
@@ -2680,20 +2689,102 @@ private fun PlayerIconButton(
 }
 
 @Composable
-private fun PulsingLogo(logoUrl: String?, title: String, modifier: Modifier = Modifier) {
+private fun PulsingLogo(
+    logoUrl: String?,
+    title: String,
+    modifier: Modifier = Modifier,
+    progress: Float? = null,
+    phaseLabel: String? = null
+) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val scale by infiniteTransition.animateFloat(
         initialValue = 0.92f, targetValue = 1.08f,
         animationSpec = infiniteRepeatable(animation = animTween(1200, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
         label = "pulseScale"
     )
-    Box(modifier = modifier.graphicsLayer { scaleX = scale; scaleY = scale }, contentAlignment = Alignment.Center) {
-        if (!logoUrl.isNullOrBlank()) {
-            AsyncImage(model = logoUrl, contentDescription = title, contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxWidth(0.5f).height(100.dp))
-        } else {
-            Text(title, style = ArflixTypography.sectionTitle.copy(fontSize = 36.sp, fontWeight = FontWeight.Bold),
-                color = Color.White, modifier = Modifier.padding(horizontal = 24.dp))
+
+    // Smoothly interpolate discrete progress jumps from the ViewModel so the
+    // ring doesn't snap between values. Null = indeterminate (no ring shown).
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress?.coerceIn(0f, 1f) ?: 0f,
+        animationSpec = animTween(durationMillis = 400, easing = FastOutSlowInEasing),
+        label = "progressFraction"
+    )
+
+    Column(
+        modifier = modifier.padding(horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier.size(180.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            if (progress != null) {
+                // Track + arc progress ring — renders even at 0% so users see
+                // the loader frame immediately rather than a bare logo.
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val strokeWidthPx = 4.dp.toPx()
+                    val diameter = size.minDimension - strokeWidthPx
+                    val topLeft = Offset(
+                        (size.width - diameter) / 2f,
+                        (size.height - diameter) / 2f
+                    )
+                    val arcSize = Size(diameter, diameter)
+                    // Track
+                    drawArc(
+                        color = Color.White.copy(alpha = 0.15f),
+                        startAngle = 0f,
+                        sweepAngle = 360f,
+                        useCenter = false,
+                        topLeft = topLeft,
+                        size = arcSize,
+                        style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round)
+                    )
+                    // Filled arc
+                    drawArc(
+                        color = Color.White,
+                        startAngle = -90f,
+                        sweepAngle = 360f * animatedProgress,
+                        useCenter = false,
+                        topLeft = topLeft,
+                        size = arcSize,
+                        style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round)
+                    )
+                }
+            }
+            Box(
+                modifier = Modifier.graphicsLayer { scaleX = scale; scaleY = scale },
+                contentAlignment = Alignment.Center
+            ) {
+                if (!logoUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = logoUrl, contentDescription = title, contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxWidth(0.55f).height(90.dp)
+                    )
+                } else {
+                    Text(
+                        title, style = ArflixTypography.sectionTitle.copy(fontSize = 28.sp, fontWeight = FontWeight.Bold),
+                        color = Color.White
+                    )
+                }
+            }
+        }
+
+        if (progress != null) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "${(animatedProgress * 100f).toInt()}%",
+                style = ArflixTypography.sectionTitle.copy(fontSize = 22.sp, fontWeight = FontWeight.SemiBold),
+                color = Color.White
+            )
+            if (!phaseLabel.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = phaseLabel,
+                    style = ArflixTypography.caption,
+                    color = TextSecondary
+                )
+            }
         }
     }
 }

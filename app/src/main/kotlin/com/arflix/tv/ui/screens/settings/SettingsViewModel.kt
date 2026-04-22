@@ -766,6 +766,12 @@ class SettingsViewModel @Inject constructor(
             context.settingsDataStore.edit { prefs ->
                 prefs[com.arflix.tv.util.DEVICE_MODE_OVERRIDE_KEY] = mode
             }
+            // Mirror to SharedPreferences so the next cold start's
+            // pre-onCreate detectDeviceType() read picks it up synchronously.
+            com.arflix.tv.util.setDeviceModeOverrideCache(
+                context,
+                if (mode == "auto") null else mode,
+            )
             _uiState.value = _uiState.value.copy(deviceModeOverride = mode)
         }
     }

@@ -4,6 +4,9 @@ package com.arflix.tv.ui.screens.tv.live
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -22,7 +25,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,12 +38,15 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -84,7 +89,10 @@ fun LiveTvScreen(
     onSwitchProfile: () -> Unit = {},
     onBack: () -> Unit = {},
 ) {
-    val state by viewModel.uiState.collectAsState()
+    // Lifecycle-aware collection so the screen stops draining state updates
+    // the instant the user backs out — matters on a long-running IPTV flow
+    // where the ViewModel pushes EPG refreshes every few seconds.
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     // Enrichment runs on a background dispatcher and is published through state
@@ -340,10 +348,19 @@ fun LiveTvScreen(
                         nowNext = state.snapshot.nowNext,
                         selectedChannelId = playingChannelId,
                         onChannelSelect = { channel ->
-                            playingChannelId = channel.id
-                            // Tapping a channel from the grid = "watch it" →
-                            // expand the tiny mini-player to full screen.
-                            isFullScreen = true
+                            // Two-step activation:
+                            //  1st tap on a channel → tune it in the mini-
+                            //      player so the user can preview without
+                            //      committing to fullscreen.
+                            //  2nd tap on the same (already-playing) channel
+                            //      → enlarge to fullscreen.
+                            // Picking a different channel while already full-
+                            // screen swaps the stream but keeps fullscreen.
+                            if (channel.id == playingChannelId && !isFullScreen) {
+                                isFullScreen = true
+                            } else {
+                                playingChannelId = channel.id
+                            }
                         },
                         onChannelFavoriteToggle = { id -> viewModel.toggleFavoriteChannel(id) },
                         favorites = favSet,
@@ -356,15 +373,33 @@ fun LiveTvScreen(
         }
 
         // Full-screen playback: same ExoPlayer, covers the entire screen.
-        AnimatedVisibility(
-            visible = isFullScreen && playingChannel != null,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.fillMaxSize(),
-        ) {
+        //
+        // The overlay animates a scale+alpha transition so it looks like the
+        // mini-player is growing into fullscreen. The transform pivot is
+        // roughly the mini-player's center (sidebar ≈ 20% of width, mini-
+        // player sits just below the 52dp top bar), which keeps the grow
+        // anchored visually to where the user tapped instead of from screen
+        // center. fsProgress stays mounted until it reaches 0, so the
+        // reverse animation also plays on Back.
+        val fsProgress by animateFloatAsState(
+            targetValue = if (isFullScreen) 1f else 0f,
+            animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
+            label = "tv-fullscreen-progress",
+        )
+        if (fsProgress > 0f && playingChannel != null) {
+            val scale = 0.35f + 0.65f * fsProgress
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .graphicsLayer {
+                        transformOrigin = TransformOrigin(
+                            pivotFractionX = 0.22f,
+                            pivotFractionY = 0.18f,
+                        )
+                        scaleX = scale
+                        scaleY = scale
+                        alpha = fsProgress
+                    }
                     .background(Color.Black),
             ) {
                 androidx.compose.ui.viewinterop.AndroidView(
@@ -381,14 +416,18 @@ fun LiveTvScreen(
         }
 
         // Top bar only shows when NOT in full-screen playback.
-        if (!isFullScreen) {
-            AppTopBar(
-                selectedItem = SidebarItem.TV,
-                isFocused = false,
-                focusedIndex = -1,
-                profile = currentProfile,
-                profileCount = 1,
-            )
+        // Fade with the fullscreen progress so it doesn't pop in/out — looks
+        // natural next to the grow animation below.
+        if (fsProgress < 1f) {
+            Box(modifier = Modifier.graphicsLayer { alpha = 1f - fsProgress }) {
+                AppTopBar(
+                    selectedItem = SidebarItem.TV,
+                    isFocused = false,
+                    focusedIndex = -1,
+                    profile = currentProfile,
+                    profileCount = 1,
+                )
+            }
         }
 
         AnimatedVisibility(

@@ -6,8 +6,6 @@ import android.content.res.Configuration
 import androidx.compose.runtime.compositionLocalOf
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
 
 enum class DeviceType {
     TV,
@@ -34,11 +32,34 @@ val DEVICE_MODE_OVERRIDE_KEY = stringPreferencesKey("device_mode_override")
 /** Key for skipping profile selection on startup */
 val SKIP_PROFILE_SELECTION_KEY = booleanPreferencesKey("skip_profile_selection")
 
+/**
+ * Fast-path cache for the device-mode override. Read before onCreate() during
+ * cold start, where the DataStore IO would otherwise block the main thread for
+ * ~50–200 ms. [setDeviceModeOverrideCache] keeps this in lock-step with the
+ * DataStore value whenever the user changes the setting.
+ */
+private const val DEVICE_MODE_PREFS = "arvio_device_mode_cache"
+private const val DEVICE_MODE_PREF_KEY = "device_mode_override"
+
+fun setDeviceModeOverrideCache(context: Context, value: String?) {
+    val prefs = context.applicationContext
+        .getSharedPreferences(DEVICE_MODE_PREFS, Context.MODE_PRIVATE)
+    prefs.edit().apply {
+        if (value == null) remove(DEVICE_MODE_PREF_KEY)
+        else putString(DEVICE_MODE_PREF_KEY, value)
+    }.apply() // apply() is async to disk, returns immediately
+}
+
 /** Values: "auto" (default), "tv", "tablet", "phone" */
 fun detectDeviceType(context: Context): DeviceType {
-    // Check for user override first
+    // Check for user override first via synchronous SharedPreferences mirror.
+    // DataStore.first() on the main thread was adding ~50–200 ms of IO stall
+    // at cold start before super.onCreate() — the splash screen showed
+    // `Theme.ArflixTV.Mobile` even on TV until this completed.
     val override = try {
-        runBlocking { context.settingsDataStore.data.first()[DEVICE_MODE_OVERRIDE_KEY] }
+        context.applicationContext
+            .getSharedPreferences(DEVICE_MODE_PREFS, Context.MODE_PRIVATE)
+            .getString(DEVICE_MODE_PREF_KEY, null)
     } catch (_: Exception) { null }
 
     when (override) {

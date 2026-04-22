@@ -55,7 +55,12 @@ class RealtimeSyncManager @Inject constructor(
         private const val HEARTBEAT_INTERVAL_MS = 30_000L
         private const val INITIAL_RECONNECT_DELAY_MS = 5_000L
         private const val MAX_RECONNECT_DELAY_MS = 40_000L
-        private const val PERIODIC_SYNC_INTERVAL_MS = 90_000L
+        // Lowered from 90s → 45s. This is the fallback polling that catches
+        // cases where the WebSocket delivered no event (network dropped mid-
+        // change, server filter missed it). Halving the interval tightens
+        // the worst-case propagation window for cross-device sync without
+        // meaningfully increasing load (one GET every 45s while signed in).
+        private const val PERIODIC_SYNC_INTERVAL_MS = 45_000L
         private const val DEBOUNCE_MS = 2_000L
         private const val WATCH_HISTORY_DEBOUNCE_MS = 5_000L
         // Reconnect with fresh token every 30 minutes to prevent silent auth expiry
@@ -446,6 +451,16 @@ class RealtimeSyncManager @Inject constructor(
             while (isActive && isRunning.get()) {
                 delay(PERIODIC_SYNC_INTERVAL_MS)
                 if (!isRunning.get()) break
+                // If the last push failed, retry it first. Without this step a
+                // transient network hiccup during Save would leave the cloud
+                // diverged from local until the user explicitly made another
+                // change. The dirty flag is cleared on success inside
+                // pushToCloud, so there's no retry loop risk.
+                if (cloudSyncRepository.isPushDirty) {
+                    Log.i(TAG, "Periodic sync: retrying dirty push")
+                    runCatching { cloudSyncRepository.pushToCloud() }
+                        .onFailure { Log.w(TAG, "Dirty push retry failed: ${it.message}") }
+                }
                 Log.d(TAG, "Periodic sync tick")
                 runCatching { cloudSyncRepository.pullFromCloud() }
                     .onFailure { Log.w(TAG, "Periodic sync failed: ${it.message}") }

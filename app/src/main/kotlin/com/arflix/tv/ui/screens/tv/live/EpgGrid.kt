@@ -95,7 +95,36 @@ fun EpgGrid(
 
     // Shared horizontal scroll state between header and body rows.
     val hScroll = rememberScrollState()
-    val vListState = rememberLazyListState()
+    // Two separate vertical list states: one per LazyColumn.
+    // A single LazyListState cannot be shared across two LazyColumns —
+    // Compose asserts exclusive ownership and crashes on recomposition
+    // when it detects two attached hosts. We keep them in lock-step via
+    // snapshotFlow below.
+    val channelListState = rememberLazyListState()
+    val programListState = rememberLazyListState()
+
+    // Bidirectional scroll sync: whichever column the user drives pulls
+    // the other along. The equality guard prevents a feedback loop.
+    LaunchedEffect(channelListState, programListState) {
+        snapshotFlow { channelListState.firstVisibleItemIndex to channelListState.firstVisibleItemScrollOffset }
+            .collect { (idx, off) ->
+                if (programListState.firstVisibleItemIndex != idx ||
+                    programListState.firstVisibleItemScrollOffset != off
+                ) {
+                    programListState.scrollToItem(idx, off)
+                }
+            }
+    }
+    LaunchedEffect(channelListState, programListState) {
+        snapshotFlow { programListState.firstVisibleItemIndex to programListState.firstVisibleItemScrollOffset }
+            .collect { (idx, off) ->
+                if (channelListState.firstVisibleItemIndex != idx ||
+                    channelListState.firstVisibleItemScrollOffset != off
+                ) {
+                    channelListState.scrollToItem(idx, off)
+                }
+            }
+    }
 
     val scope = rememberCoroutineScope()
 
@@ -203,13 +232,17 @@ fun EpgGrid(
             Row(modifier = Modifier.fillMaxSize()) {
                 // Channel column (sticky left, vertical scroll only)
                 LazyColumn(
-                    state = vListState,
+                    state = channelListState,
                     modifier = Modifier
                         .width(LiveDims.EpgChannelColWidth)
                         .fillMaxHeight()
                         .background(LiveColors.PanelDeep),
                 ) {
-                    itemsIndexed(channels, key = { _, ch -> ch.id }) { idx, ch ->
+                    itemsIndexed(
+                        channels,
+                        key = { _, ch -> ch.id },
+                        contentType = { _, _ -> "channel" }
+                    ) { idx, ch ->
                         ChannelRow(
                             channel = ch,
                             isActive = ch.id == selectedChannelId,
@@ -230,15 +263,32 @@ fun EpgGrid(
                 // Program grid (scrolls both ways, synced with above)
                 Box(modifier = Modifier.fillMaxSize()) {
                     LazyColumn(
-                        state = vListState,
+                        state = programListState,
                         modifier = Modifier
                             .fillMaxSize()
                             .horizontalScroll(hScroll),
                     ) {
-                        itemsIndexed(channels, key = { _, ch -> ch.id }) { idx, ch ->
+                        itemsIndexed(
+                            channels,
+                            key = { _, ch -> ch.id },
+                            contentType = { _, _ -> "programsRow" }
+                        ) { idx, ch ->
+                            // Memoise the windowed program list per channel.
+                            // Without this, every vertical scroll tick triggers
+                            // a full recomputation across every visible row —
+                            // which turns the category-expand interaction into
+                            // a stutter/ANR on lower-end TV boxes.
+                            val rowPrograms = remember(
+                                ch.id,
+                                nowNext[ch.id],
+                                windowStartMillis,
+                                windowEndMillis,
+                            ) {
+                                programsInWindow(nowNext[ch.id], windowStartMillis, windowEndMillis)
+                            }
                             ProgramsRow(
                                 channel = ch,
-                                programs = programsInWindow(nowNext[ch.id], windowStartMillis, windowEndMillis),
+                                programs = rowPrograms,
                                 windowStartMillis = windowStartMillis,
                                 pxPerMin = pxPerMin,
                                 stripe = idx % 2 == 1,
@@ -313,7 +363,9 @@ private fun ProgramsRow(
         } else {
             programs.forEach { p ->
                 val startMin = ((p.startUtcMillis - windowStartMillis) / 60_000L).toInt().coerceAtLeast(0)
-                val durationMin = ((p.endUtcMillis - p.startUtcMillis) / 60_000L).toInt().coerceAtLeast(15)
+                // 30-min floor → 150dp min block width, enough room to render
+                // LIVE badge + title + time without immediate ellipsis.
+                val durationMin = ((p.endUtcMillis - p.startUtcMillis) / 60_000L).toInt().coerceAtLeast(30)
                 val offset = (startMin * pxPerMin).dp
                 val width = (durationMin * pxPerMin).dp
                 val isNow = nowMillis in p.startUtcMillis..p.endUtcMillis

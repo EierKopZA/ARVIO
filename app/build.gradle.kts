@@ -194,6 +194,9 @@ dependencies {
     implementation("androidx.core:core-splashscreen:1.0.1")  // Android 12+ Splash Screen
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
+    // Provides collectAsStateWithLifecycle — pauses Flow collection while the
+    // screen is off so we don't drive recompositions on invisible UI.
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
     implementation("androidx.activity:activity-compose:1.8.2")
 
     // Compose BOM — bumped alongside Kotlin 2.1. Staying on the 2024.06

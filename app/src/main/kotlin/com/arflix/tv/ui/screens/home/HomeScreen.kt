@@ -52,6 +52,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -286,10 +287,13 @@ fun HomeScreen(
             )
         }
     }
-    val uiState by viewModel.uiState.collectAsState()
+    // Lifecycle-aware: stops collecting when HomeScreen is off-screen so the
+    // ViewModel's TMDB/Trakt refresh pushes don't drive recompositions behind
+    // an invisible UI.
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     // Performance: Directly collect StateFlow instead of syncing to mutableStateMapOf
     // This avoids O(n) iteration on every logo cache update
-    val cardLogoUrls by viewModel.cardLogoUrls.collectAsState()
+    val cardLogoUrls by viewModel.cardLogoUrls.collectAsStateWithLifecycle()
     val profileCount = if (currentProfile != null) 1 else 0
     val usePosterCards = rememberCardLayoutMode() == CardLayoutMode.POSTER
     val lifecycleOwner = LocalLifecycleOwner.current
