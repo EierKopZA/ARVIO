@@ -157,6 +157,22 @@ class WatchHistoryRepository @Inject constructor(
         // watch_history realtime event (which fires back to our own device) doesn't
         // trigger a redundant Home Continue Watching refresh. See issue #91 fix.
         if (saved) {
+            val nowIso = Instant.now().toString()
+            val cachedEntry = entry.copy(
+                paused_at = nowIso,
+                updated_at = nowIso
+            )
+            cachedContinueWatching = if (isEntryInProgress(cachedEntry)) {
+                listOf(cachedEntry) + cachedContinueWatching.filterNot { existing ->
+                    existing.media_type == cachedEntry.media_type &&
+                        existing.show_tmdb_id == cachedEntry.show_tmdb_id
+                }
+            } else {
+                cachedContinueWatching.filterNot { existing ->
+                    existing.media_type == cachedEntry.media_type &&
+                        existing.show_tmdb_id == cachedEntry.show_tmdb_id
+                }
+            }
             runCatching { realtimeSyncManagerProvider.get().markLocalWatchHistoryWrite() }
         }
     }

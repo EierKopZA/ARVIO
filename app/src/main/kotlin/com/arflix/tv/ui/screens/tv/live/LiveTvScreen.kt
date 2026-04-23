@@ -128,6 +128,9 @@ fun LiveTvScreen(
             value = System.currentTimeMillis()
         }
     }
+    var selectedCategoryId by rememberSaveable { mutableStateOf("all") }
+    val initialChannelRenderLimit = if (isTouchDevice) 480 else 1200
+    val startupRecents = remember { mutableStateOf<LinkedHashSet<String>>(LinkedHashSet()) }
 
     // Enrichment runs on a background dispatcher and is published through state
     // — avoids blocking recomposition for 10k+ playlists. Result is cached in
@@ -137,9 +140,12 @@ fun LiveTvScreen(
             (viewModel.cachedEnrichedChannels as? EnrichedChannels) ?: EnrichedChannels.Empty
         )
     }
-    LaunchedEffect(state.snapshot.channels) {
+    LaunchedEffect(state.snapshot.channels, selectedCategoryId, state.snapshot.favoriteChannels, startupRecents.value) {
         val snapshot = state.snapshot.channels
-        if (snapshot.isEmpty()) return@LaunchedEffect
+        if (snapshot.isEmpty()) {
+            enrichedState.value = EnrichedChannels.Empty
+            return@LaunchedEffect
+        }
         // Skip re-enrichment if we already have a cache for the same playlist.
         val signature = "${snapshot.size}:${snapshot.firstOrNull()?.id}:${snapshot.lastOrNull()?.id}"
         if (viewModel.cachedChannelsSignature == signature &&
@@ -149,16 +155,26 @@ fun LiveTvScreen(
             return@LaunchedEffect
         }
 
-        val enriched = withContext(Dispatchers.Default) {
-            snapshot.mapIndexed { idx, ch -> ch.enrich(100 + idx) }
-        }
         val favSet = state.snapshot.favoriteChannels.toSet()
         val tree = withContext(Dispatchers.Default) {
             buildCategoryTree(
-                channels = enriched,
-                favoritesCount = enriched.count { it.id in favSet && !it.isAdult },
-                recentCount = 0,
+                channels = snapshot,
+                favorites = favSet,
+                recents = startupRecents.value,
             )
+        }
+        val initialChannels = withContext(Dispatchers.Default) {
+            buildInitialCategoryChannels(
+                channels = snapshot,
+                categoryId = selectedCategoryId,
+                favorites = favSet,
+                recents = startupRecents.value,
+                limit = initialChannelRenderLimit,
+            )
+        }
+        enrichedState.value = EnrichedChannels(all = initialChannels, tree = tree)
+        val enriched = withContext(Dispatchers.Default) {
+            snapshot.mapIndexed { idx, ch -> ch.enrich(100 + idx) }
         }
         val value = EnrichedChannels(all = enriched, tree = tree)
         enrichedState.value = value
@@ -172,16 +188,15 @@ fun LiveTvScreen(
         val favSet = state.snapshot.favoriteChannels.toSet()
         val tree = withContext(Dispatchers.Default) {
             buildCategoryTree(
-                channels = current.all,
-                favoritesCount = current.all.count { it.id in favSet && !it.isAdult },
-                recentCount = 0,
+                channels = state.snapshot.channels,
+                favorites = favSet,
+                recents = startupRecents.value,
             )
         }
         enrichedState.value = current.copy(tree = tree)
     }
 
     // Selected category (persist across nav). Defaults to "all".
-    var selectedCategoryId by rememberSaveable { mutableStateOf("all") }
     val hasProfile = currentProfile != null
     val maxTopBarIndex = topBarMaxIndex(hasProfile)
     var focusZone by rememberSaveable { mutableStateOf(LiveTvFocusZone.EPG) }
@@ -215,8 +230,29 @@ fun LiveTvScreen(
     // Playing channel — default to the one we were navigated to, else the first
     // channel of the first non-empty category.
     var playingChannelId by rememberSaveable { mutableStateOf<String?>(initialChannelId) }
-    val playingChannel = remember(playingChannelId, enrichedState.value) {
+    val playingChannel = remember(playingChannelId, enrichedState.value, filteredChannels) {
         enrichedState.value.all.firstOrNull { it.id == playingChannelId }
+            ?: filteredChannels.firstOrNull { it.id == playingChannelId }
+    }
+
+    val epgPrefetchIds = remember(filteredChannels, selectedCategoryId, playingChannelId) {
+        val maxPrefetch = if (selectedCategoryId == "all") 180 else 320
+        buildList<String> {
+            playingChannelId
+                ?.takeIf { current -> filteredChannels.any { channel -> channel.id == current } }
+                ?.let { add(it) }
+            filteredChannels
+                .asSequence()
+                .map { it.id }
+                .filterNot { it == playingChannelId }
+                .take((maxPrefetch - size).coerceAtLeast(0))
+                .forEach { add(it) }
+        }
+    }
+    LaunchedEffect(selectedCategoryId, epgPrefetchIds, playingChannelId) {
+        if (epgPrefetchIds.isNotEmpty()) {
+            viewModel.prefetchVisibleCategoryEpg(epgPrefetchIds, playingChannelId)
+        }
     }
 
     // Pick a default channel to play when data arrives. Prefer a favorite
@@ -232,6 +268,7 @@ fun LiveTvScreen(
     val sidebarExpanded = !useTouchRail
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var focusSelectedChannelSignal by remember { mutableIntStateOf(0) }
+    var sidebarAtTopBoundary by remember { mutableStateOf(false) }
     // Full-screen playback mode — pressing OK on an EPG row expands the
     // mini-player to cover the whole screen. Back collapses back to the grid.
     var isFullScreen by rememberSaveable { mutableStateOf(initialStreamUrl != null) }
@@ -405,7 +442,7 @@ fun LiveTvScreen(
                                 }
                             }
                             LiveTvFocusZone.SIDEBAR -> {
-                                if (event.key == Key.DirectionUp) {
+                                if (event.key == Key.DirectionUp && sidebarAtTopBoundary) {
                                     topBarFocusIndex = topBarSelectedIndex(SidebarItem.TV, hasProfile)
                                         .coerceIn(0, maxTopBarIndex)
                                     focusZone = LiveTvFocusZone.TOPBAR
@@ -424,21 +461,9 @@ fun LiveTvScreen(
     ) {
         // Content area starts below the translucent top bar so it doesn't get
         // overwritten.
-        // Keep the loading pane up until enrichment has actually produced
-        // channels — avoids the "empty TV page for 10s" gap the user saw.
-        val isEnriching = enrichedState.value === EnrichedChannels.Empty &&
-            state.snapshot.channels.isNotEmpty()
         if (isFullScreen) {
             // Full-screen playback only — no grid rendered so the single
             // PlayerView owns ExoPlayer.
-        } else if (
-            state.isLoading && state.snapshot.channels.isEmpty() ||
-            isEnriching
-        ) {
-            LoadingPane(
-                message = state.loadingMessage ?: "Preparing channels…",
-                percent = state.loadingPercent,
-            )
         } else if (!state.isConfigured && state.snapshot.channels.isEmpty()) {
             EmptyStatePane(
                 message = "No IPTV playlist configured.",
@@ -508,6 +533,7 @@ fun LiveTvScreen(
                     onSelect = { id -> selectedCategoryId = id },
                     onOpenSearch = { searchOpen = true },
                     onFocusEnter = { focusZone = LiveTvFocusZone.SIDEBAR },
+                    onTopBoundaryFocusChanged = { sidebarAtTopBoundary = it },
                     modifier = Modifier
                         .fillMaxHeight()
                         .padding(top = contentTopPadding)

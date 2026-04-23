@@ -1506,9 +1506,17 @@ class TraktRepository @Inject constructor(
         if (preloadedProfileCache.containsKey(profileId)) return
 
         try {
+            val tokenKey = stringPreferencesKey("profile_${profileId}_trakt_access_token")
+            val prefs = context.traktDataStore.data.first()
+            if (!prefs[tokenKey].isNullOrBlank()) {
+                // Do not seed profile selection from the persisted Trakt CW cache.
+                // That cache can lag behind real progress and causes the Home row
+                // to flash stale episodes before the fresh resolver replaces it.
+                return
+            }
+
             // Directly access the cache with the specific profile's key
             val cacheKey = stringPreferencesKey("profile_${profileId}_trakt_continue_watching_cache_v1")
-            val prefs = context.traktDataStore.data.first()
             val json = prefs[cacheKey] ?: return
 
             val type = com.google.gson.reflect.TypeToken
@@ -1680,7 +1688,8 @@ class TraktRepository @Inject constructor(
             streamKey = streamKey,
             streamAddonId = streamAddonId,
             streamTitle = streamTitle,
-            year = year
+            year = year,
+            updatedAtMs = System.currentTimeMillis()
         )
 
         // Load existing items (raw - no enrichment needed when saving)
@@ -2904,7 +2913,8 @@ data class ContinueWatchingItem(
     val overview: String = "",
     val imdbRating: String = "",
     val duration: String = "",
-    val budget: Long? = null
+    val budget: Long? = null,
+    val updatedAtMs: Long = 0L
 ) {
     fun toMediaItem(): MediaItem {
         val resumeSeconds = when {

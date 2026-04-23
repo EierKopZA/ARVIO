@@ -259,16 +259,10 @@ class MainActivity : ComponentActivity() {
                 authRepository.get().checkAuthState()
             }
             ArflixApplication.instance.scheduleTraktSyncIfNeeded()
-            if (initialDeviceType == DeviceType.TV) {
-                lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    delay(8_000L)
-                    runCatching {
-                        iptvRepository.get().getCachedSnapshotOrNull()
-                    }
-                }
+            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val repo = iptvRepository.get()
+                runCatching { repo.prefetchFreshStartupData() }
             }
-
-            // Warm IPTV cache early — so the TV page has its snapshot + EPG
         }
     }
 

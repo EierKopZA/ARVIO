@@ -80,6 +80,7 @@ fun CategorySidebar(
     onSelect: (String) -> Unit,
     onOpenSearch: () -> Unit,
     onFocusEnter: () -> Unit = {},
+    onTopBoundaryFocusChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val targetWidth = if (expanded) LiveDims.SidebarExpanded else LiveDims.SidebarCollapsed
@@ -111,7 +112,11 @@ fun CategorySidebar(
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        SearchEntry(onClick = onOpenSearch, expanded = expanded)
+        SearchEntry(
+            onClick = onOpenSearch,
+            expanded = expanded,
+            onFocusChanged = onTopBoundaryFocusChanged,
+        )
         Spacer(Modifier.height(8.dp))
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -123,6 +128,7 @@ fun CategorySidebar(
                     icon = iconFor(cat),
                     active = selectedId == cat.id,
                     expanded = expanded,
+                    onFocused = { onTopBoundaryFocusChanged(false) },
                     onClick = { onSelect(cat.id) },
                 )
             }
@@ -135,6 +141,7 @@ fun CategorySidebar(
                         icon = iconFor(cat),
                         active = selectedId == cat.id,
                         expanded = expanded,
+                        onFocused = { onTopBoundaryFocusChanged(false) },
                         onClick = { onSelect(cat.id) },
                     )
                 }
@@ -152,6 +159,7 @@ fun CategorySidebar(
                         expanded = expanded,
                         hasChildren = country.children.isNotEmpty(),
                         isOpenGroup = isExpanded,
+                        onFocused = { onTopBoundaryFocusChanged(false) },
                         onClick = {
                             // Tap always toggles expansion. Opening also selects so
                             // the grid reflects the just-opened group; collapsing
@@ -175,6 +183,7 @@ fun CategorySidebar(
                                 expanded = true,
                                 indent = 40.dp,
                                 labelSize = 13.sp,
+                                onFocused = { onTopBoundaryFocusChanged(false) },
                                 onClick = { onSelect(child.id) },
                             )
                         }
@@ -190,6 +199,7 @@ fun CategorySidebar(
                         icon = Icons.Filled.Lock,
                         active = selectedId == cat.id,
                         expanded = expanded,
+                        onFocused = { onTopBoundaryFocusChanged(false) },
                         onClick = { onSelect(cat.id) },
                     )
                 }
@@ -200,13 +210,20 @@ fun CategorySidebar(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun SearchEntry(onClick: () -> Unit, expanded: Boolean) {
+private fun SearchEntry(
+    onClick: () -> Unit,
+    expanded: Boolean,
+    onFocusChanged: (Boolean) -> Unit = {},
+) {
     var focused by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(40.dp)
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged {
+                focused = it.isFocused
+                onFocusChanged(it.isFocused)
+            }
             .border(
                 width = if (focused) 3.dp else 0.dp,
                 color = if (focused) LiveColors.FocusRing else Color.Transparent,
@@ -274,6 +291,7 @@ private fun SidebarRow(
     active: Boolean,
     expanded: Boolean,
     onClick: () -> Unit,
+    onFocused: (() -> Unit)? = null,
     flagEmoji: String? = null,
     leadingCode: String? = null,
     hasChildren: Boolean = false,
@@ -307,7 +325,10 @@ private fun SidebarRow(
                 .fillMaxWidth()
                 .fillMaxHeight()
                 .padding(start = if (active) 12.dp else 10.dp, end = 12.dp)
-                .onFocusChanged { focused = it.isFocused }
+                .onFocusChanged {
+                    focused = it.isFocused
+                    if (it.isFocused) onFocused?.invoke()
+                }
                 .border(
                     width = if (focused) 3.dp else 0.dp,
                     color = if (focused) LiveColors.FocusRing else Color.Transparent,

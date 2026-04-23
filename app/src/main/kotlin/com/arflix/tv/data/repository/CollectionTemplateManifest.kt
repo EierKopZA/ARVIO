@@ -33,6 +33,7 @@ internal data class CollectionTemplateEntry(
 
 internal object CollectionTemplateManifest {
     private const val VIDEO_BASE = "https://raw.githubusercontent.com/mrtxiv/networks-video-collection/3486fc9a3d0efe59d1929e75f66021dc4e15bcb7/networks%20videos/"
+    private const val STREAMING_SERVICE_IMAGE_BASE = "https://raw.githubusercontent.com/chrishudson918/images/46fd4f8c335a7c581a7dcdb7dfac268c68ef84fc/Landscape%20Streaming%20Services/"
     private const val STREAMING_ADDON_URL = "https://7a82163c306e-stremio-netflix-catalog-addon.baby-beamup.club/bmZ4LGRucCxhbXAsYXRwLGhibSxwbXAscGNwLGhsdSxzdHo6OlVTOjE3NzYzMjQxMDg4OTM6MDowOkdU/manifest.json"
     private const val MARVEL_ADDON_URL = "https://addon-marvel.onrender.com/catalog/marvel-mcu/manifest.json"
     private const val DC_ADDON_URL = "https://addon-dc-cq85.onrender.com/catalog/dc-chronological/manifest.json"
@@ -104,7 +105,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Netflix",
             group = CollectionGroupKind.SERVICE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/Netflix.jpg",
+            coverImageUrl = "${STREAMING_SERVICE_IMAGE_BASE}netflix.jpegli.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = "${VIDEO_BASE}netflix.mp4",
@@ -120,7 +121,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Disney+",
             group = CollectionGroupKind.SERVICE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/Disney.jpg",
+            coverImageUrl = "${STREAMING_SERVICE_IMAGE_BASE}disney.jpegli.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = "${VIDEO_BASE}disneyplus.mp4",
@@ -136,7 +137,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Apple TV+",
             group = CollectionGroupKind.SERVICE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/Apple-TV.png",
+            coverImageUrl = "${STREAMING_SERVICE_IMAGE_BASE}apple.jpegli.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = "${VIDEO_BASE}appletv.mp4",
@@ -152,7 +153,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Prime Video",
             group = CollectionGroupKind.SERVICE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/Prime-Video.jpg",
+            coverImageUrl = "${STREAMING_SERVICE_IMAGE_BASE}prime.jpegli.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = "${VIDEO_BASE}amazonprime.mp4",
@@ -168,7 +169,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "HBO Max",
             group = CollectionGroupKind.SERVICE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/HBO-Max.jpg",
+            coverImageUrl = "${STREAMING_SERVICE_IMAGE_BASE}hbo.jpegli.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = "${VIDEO_BASE}hbomax.mp4",
@@ -184,7 +185,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Hulu",
             group = CollectionGroupKind.SERVICE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/Hulu.jpg",
+            coverImageUrl = "${STREAMING_SERVICE_IMAGE_BASE}hulu.jpegli.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = "${VIDEO_BASE}hulu.mp4",
@@ -200,23 +201,23 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Paramount+",
             group = CollectionGroupKind.SERVICE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/Paramount.jpg",
+            coverImageUrl = "${STREAMING_SERVICE_IMAGE_BASE}paramount.jpegli.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = "${VIDEO_BASE}paramount.mp4",
             sources = listOf(
-                source(addonId = "aio-metadata", type = "movie", catalogId = "streaming.pmp"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.pmp")
+                source(addonId = "aio-metadata", type = "movie", catalogId = "mdblist.86762"),
+                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.86761")
             ),
             listMetadata = listOf(
-                metadata(sourceCatalogId = "streaming.pmp", sourceAddonId = "aio-metadata", sourceName = "Paramount+", sourceLabel = "AIO", mediaType = "movie", itemCount = null, author = null, url = null),
-                metadata(sourceCatalogId = "streaming.pmp", sourceAddonId = "aio-metadata", sourceName = "Paramount+", sourceLabel = "AIO", mediaType = "series", itemCount = null, author = null, url = null)
+                metadata(sourceCatalogId = "mdblist.86762", sourceAddonId = "aio-metadata", sourceName = "Paramount+ Movies", sourceLabel = "MDBLIST", mediaType = "movie", itemCount = null, author = null, url = null),
+                metadata(sourceCatalogId = "mdblist.86761", sourceAddonId = "aio-metadata", sourceName = "Paramount+ Series", sourceLabel = "MDBLIST", mediaType = "series", itemCount = null, author = null, url = null)
             )
         ),
         entry(
             title = "Peacock",
             group = CollectionGroupKind.SERVICE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/Peacock.jpg",
+            coverImageUrl = "${STREAMING_SERVICE_IMAGE_BASE}peacock.jpegli.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -248,7 +249,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Shudder",
             group = CollectionGroupKind.SERVICE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/Shudder.jpg",
+            coverImageUrl = "${STREAMING_SERVICE_IMAGE_BASE}Shudder.jpegli.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -280,7 +281,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Discovery+",
             group = CollectionGroupKind.SERVICE,
-            coverImageUrl = "https://nuvioapp.space/uploads/covers/b65b07ab-94c8-42f6-ace1-fe02e34b5e3b.png",
+            coverImageUrl = "${STREAMING_SERVICE_IMAGE_BASE}discovery.jpegli.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -296,7 +297,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Crunchyroll",
             group = CollectionGroupKind.SERVICE,
-            coverImageUrl = "https://image.tmdb.org/t/p/original/3GQKYh6Trm8pxd2AypovoYQf4Ay.jpg",
+            coverImageUrl = "file:///android_asset/service_cards/crunchyroll.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,

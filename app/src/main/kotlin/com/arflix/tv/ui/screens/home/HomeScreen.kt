@@ -4,6 +4,7 @@ package com.arflix.tv.ui.screens.home
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -537,12 +538,19 @@ fun HomeScreen(
     // Service-collection video lifecycle: play once on focus, with sound,
     // then mark the card "played" so subsequent focus returns fall back to
     // the stock image. IPTV live streams bypass this (they loop naturally).
+    val heroVideoFadeDurationMs = 420
     val focusedCollectionId = displayHeroItem?.id?.takeIf { isHeroCollection }
+    val latestFocusedCollectionId by rememberUpdatedState(focusedCollectionId)
+    val heroVideoAlpha by animateFloatAsState(
+        targetValue = if (heroVideoUrl != null) 1f else 0f,
+        animationSpec = tween(durationMillis = heroVideoFadeDurationMs),
+        label = "home-hero-video-alpha"
+    )
     DisposableEffect(heroExoPlayer) {
         val listener = object : androidx.media3.common.Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == androidx.media3.common.Player.STATE_ENDED) {
-                    focusedCollectionId?.let { collectionVideoFinishedId = it }
+                    latestFocusedCollectionId?.let { collectionVideoFinishedId = it }
                 }
             }
         }
@@ -575,9 +583,10 @@ fun HomeScreen(
             heroExoPlayer.prepare()
             heroExoPlayer.playWhenReady = true
         } else {
+            heroExoPlayer.playWhenReady = false
+            delay(heroVideoFadeDurationMs.toLong())
             heroExoPlayer.stop()
             heroExoPlayer.clearMediaItems()
-            heroExoPlayer.playWhenReady = false
         }
     }
 
@@ -625,7 +634,7 @@ fun HomeScreen(
                 )
             }
 
-            if (heroVideoUrl != null) {
+            if (heroVideoUrl != null || heroVideoAlpha > 0.01f) {
                 AndroidView(
                     factory = { ctx ->
                         PlayerView(ctx).apply {
@@ -637,7 +646,9 @@ fun HomeScreen(
                         }
                     },
                     update = { pv -> pv.player = heroExoPlayer },
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = heroVideoAlpha }
                 )
             }
 

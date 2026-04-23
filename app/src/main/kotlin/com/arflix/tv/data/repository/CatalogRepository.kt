@@ -51,6 +51,10 @@ class CatalogRepository @Inject constructor(
         private const val ADDON_SOURCE_REF_PREFIX = "addon_catalog|"
     }
 
+    private val bundledPreinstalledCatalogIds by lazy(LazyThreadSafetyMode.NONE) {
+        MediaRepository.buildPreinstalledDefaults().map { it.id }.toSet()
+    }
+
     private val gson = Gson()
     private fun catalogsKey(profileId: String) = stringPreferencesKey("profile_${profileId}_catalogs_v1")
     private fun hiddenPreinstalledKey(profileId: String) = stringPreferencesKey("profile_${profileId}_hidden_preinstalled_catalogs_v2")
@@ -123,6 +127,14 @@ class CatalogRepository @Inject constructor(
         return sanitizeCollectionCatalogs(readCatalogsFromPrefs(safeProfileId, prefs))
     }
 
+    private fun isBundledPreinstalledCatalogId(catalogId: String): Boolean {
+        return bundledPreinstalledCatalogIds.contains(catalogId.trim())
+    }
+
+    private fun isPreinstalledCatalog(config: CatalogConfig): Boolean {
+        return config.isPreinstalled || isBundledPreinstalledCatalogId(config.id)
+    }
+
     private fun sanitizeCollectionCatalogs(catalogs: List<CatalogConfig>): List<CatalogConfig> {
         return catalogs.mapNotNull { config ->
             if (!CollectionTemplateManifest.isValidCollectionConfig(config)) {
@@ -171,8 +183,11 @@ class CatalogRepository @Inject constructor(
 
     private suspend fun saveCatalogs(catalogs: List<CatalogConfig>) {
         val profileId = activeProfileId()
+        val sanitized = catalogs
+            .distinctBy { it.id }
+            .mapNotNull { normalizeCatalogConfig(it) }
         context.settingsDataStore.edit { prefs ->
-            prefs[catalogsKey(profileId)] = gson.toJson(catalogs)
+            prefs[catalogsKey(profileId)] = gson.toJson(sanitized)
         }
     }
 
@@ -180,13 +195,7 @@ class CatalogRepository @Inject constructor(
         val safeProfileId = profileId.trim().ifBlank { "default" }
         val sanitized = catalogs
             .distinctBy { it.id }
-            .map { cfg ->
-                val looksCustom = cfg.id.startsWith("custom_") ||
-                    cfg.sourceType == CatalogSourceType.ADDON ||
-                    !cfg.sourceUrl.isNullOrBlank() ||
-                    !cfg.sourceRef.isNullOrBlank()
-                if (looksCustom) cfg.copy(isPreinstalled = false) else cfg
-            }
+            .mapNotNull { normalizeCatalogConfig(it) }
         context.settingsDataStore.edit { prefs ->
             prefs[catalogsKey(safeProfileId)] = gson.toJson(sanitized)
         }
@@ -535,11 +544,10 @@ class CatalogRepository @Inject constructor(
         val current = getCatalogs().toMutableList()
         val target = current.firstOrNull { it.id == catalogId }
             ?: return Result.failure(IllegalArgumentException("Catalog not found"))
-        // Always add to hidden preinstalled list. This covers MDBList preinstalled
-        // catalogs that may have isPreinstalled=false due to having sourceUrl set.
-        // For truly custom catalogs, the hide is harmless (ID won't match defaults on next startup).
         val profileId = activeProfileId()
-        hidePreinstalledCatalog(profileId, catalogId)
+        if (isPreinstalledCatalog(target)) {
+            hidePreinstalledCatalog(profileId, catalogId)
+        }
         current.removeAll { it.id == catalogId }
         saveCatalogs(current)
         return Result.success(Unit)
@@ -877,6 +885,7 @@ class CatalogRepository @Inject constructor(
         if (config.id.isBlank() || config.title.isBlank()) return null
         val normalizedUrl = config.sourceUrl?.trim().takeUnless { it.isNullOrBlank() }
         val normalizedRef = config.sourceRef?.trim().takeUnless { it.isNullOrBlank() }
+        val bundledPreinstalled = isBundledPreinstalledCatalogId(config.id)
         val sourceRefAddon = parseAddonSourceRef(normalizedRef)
         val normalizedCollectionTileShape = runCatching {
             CollectionTileShape.valueOf(config.collectionTileShape.name)
@@ -899,8 +908,9 @@ class CatalogRepository @Inject constructor(
             else -> config.kind
         }
         val normalizedPreinstalled = when {
-            normalizedKind == CatalogKind.COLLECTION || normalizedKind == CatalogKind.COLLECTION_RAIL -> config.isPreinstalled
-            normalizedUrl != null -> false
+            bundledPreinstalled -> true
+            normalizedKind == CatalogKind.COLLECTION || normalizedKind == CatalogKind.COLLECTION_RAIL ->
+                config.isPreinstalled
             inferredType != CatalogSourceType.PREINSTALLED -> false
             else -> config.isPreinstalled
         }
@@ -988,7 +998,7 @@ class CatalogRepository @Inject constructor(
         if (primary.isNotEmpty()) {
             val base = primary
                 .distinctBy { it.id }
-                .filterNot { cfg -> cfg.isPreinstalled && cfg.id in hiddenPreinstalled }
+                .filterNot { cfg -> isPreinstalledCatalog(cfg) && cfg.id in hiddenPreinstalled }
                 .toMutableList()
             val existingKeys = base.map { "${it.id}|${it.sourceUrl.orEmpty()}" }.toMutableSet()
 
@@ -1017,14 +1027,14 @@ class CatalogRepository @Inject constructor(
         if (legacyDefault.isNotEmpty()) {
             return legacyDefault
                 .distinctBy { it.id }
-                .filterNot { cfg -> cfg.isPreinstalled && cfg.id in hiddenPreinstalled }
+                .filterNot { cfg -> isPreinstalledCatalog(cfg) && cfg.id in hiddenPreinstalled }
         }
 
         val legacyGlobal = parseCatalogsJson(prefs[legacyGlobalKey])
         if (legacyGlobal.isNotEmpty()) {
             return legacyGlobal
                 .distinctBy { it.id }
-                .filterNot { cfg -> cfg.isPreinstalled && cfg.id in hiddenPreinstalled }
+                .filterNot { cfg -> isPreinstalledCatalog(cfg) && cfg.id in hiddenPreinstalled }
         }
 
         return emptyList()

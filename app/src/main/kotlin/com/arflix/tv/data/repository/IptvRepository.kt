@@ -76,6 +76,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.atomic.AtomicBoolean
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.lang.reflect.Type
 import java.security.KeyStore
@@ -152,9 +153,22 @@ class IptvRepository @Inject constructor(
     private var xtreamVodCacheKey: String? = null
     @Volatile
     private var xtreamVodLoadedAtMs: Long = 0L
+    private val startupPrefetchInFlight = AtomicBoolean(false)
 
     private fun buildGroupedChannels(channels: List<IptvChannel>): Map<String, List<IptvChannel>> =
         channels.groupBy { it.group.ifBlank { "Uncategorized" } }
+    private fun hasAnyConfiguredSource(config: IptvConfig): Boolean =
+        config.m3uUrl.isNotBlank() ||
+            config.stalkerPortalUrl.isNotBlank() ||
+            config.playlists.any { it.enabled && it.m3uUrl.isNotBlank() }
+    private fun activePlaylists(config: IptvConfig): List<IptvPlaylistEntry> =
+        config.playlists.filter { it.enabled }.ifEmpty {
+            if (config.m3uUrl.isNotBlank()) {
+                listOf(IptvPlaylistEntry("list_1", "List 1", config.m3uUrl, config.epgUrl, enabled = true))
+            } else {
+                emptyList()
+            }
+        }
     @Volatile
     private var xtreamSeriesLoadedAtMs: Long = 0L
     @Volatile
@@ -185,6 +199,8 @@ class IptvRepository @Inject constructor(
     private val epgUpcomingProgramLimit = 8
     private val epgRecentProgramLimit = 2
     private val xtreamShortEpgLimit = 8
+    private val startupShortEpgChannelLimit = 1200
+    private val generalShortEpgChannelLimit = 4000
     private val cacheUpcomingProgramLimit = 4
     private val cacheRecentProgramLimit = 1
     private val xtreamVodCacheMs = 6 * 60 * 60_000L
@@ -653,6 +669,7 @@ class IptvRepository @Inject constructor(
     suspend fun loadSnapshot(
         forcePlaylistReload: Boolean = false,
         forceEpgReload: Boolean = false,
+        allowNetworkEpgFetch: Boolean = false,
         onProgress: (IptvLoadProgress) -> Unit = {},
         onChannelsReady: suspend (List<IptvChannel>) -> Unit = {}
     ): IptvSnapshot {
@@ -740,7 +757,7 @@ class IptvRepository @Inject constructor(
                     val aggregatedChannels = java.util.Collections.synchronizedList(mutableListOf<IptvChannel>())
                     activePlaylists.map { playlist ->
                         async {
-                            val playlistChannels = fetchAndParseM3uWithRetries(playlist.m3uUrl, onProgress).map { channel ->
+                            val playlistChannels = fetchChannelsForPlaylistWithRetries(playlist, onProgress).map { channel ->
                                 channel.copy(
                                     id = "${playlist.id}:${channel.id}",
                                     group = if (playlist.name.isNotBlank()) "${playlist.name} • ${channel.group}" else channel.group
@@ -763,6 +780,15 @@ class IptvRepository @Inject constructor(
             // Publish channels immediately so the UI can show them while EPG loads.
             // Uses cached nowNext if available to paint initial EPG state.
             runCatching { onChannelsReady(channels) }
+            if ((forcePlaylistReload || cachedFromDisk == null) && channels.isNotEmpty()) {
+                val immediateNowNext = reDeriveCachedNowNext(channels.asSequence().map { it.id }.toSet()).orEmpty()
+                writeCache(
+                    config = config,
+                    channels = channels,
+                    nowNext = immediateNowNext,
+                    loadedAtMs = System.currentTimeMillis()
+                )
+            }
 
             val epgCandidates = resolveEpgCandidates(config)
             var epgUpdated = false
@@ -774,8 +800,7 @@ class IptvRepository @Inject constructor(
             var epgFailureMessage: String? = null
 
             // Check if this is an Xtream provider (can use fast short EPG API)
-            val xtreamCreds = resolveXtreamCredentials(config.epgUrl)
-                ?: resolveXtreamCredentials(config.m3uUrl)
+            val xtreamCreds = resolveXtreamCredentials(config)
             val hasXtreamChannels = channels.any { it.xtreamStreamId != null || it.id.startsWith("xtream:") }
             System.err.println("[EPG] loadSnapshot: forceEpgReload=$forceEpgReload shouldUseCachedEpg=$shouldUseCachedEpg cachedHasPrograms=$cachedHasPrograms xtreamCreds=${xtreamCreds != null} hasXtreamChannels=$hasXtreamChannels epgCandidates=${epgCandidates.size}")
             val cachedFallbackNowNext =
@@ -784,6 +809,15 @@ class IptvRepository @Inject constructor(
                 onProgress(IptvLoadProgress("Using cached EPG", 92))
                 System.err.println("[EPG] Using cached EPG (${cachedNowNext.size} channels, age=${(now - cachedEpgAt)/1000}s)")
                 cachedFallbackNowNext
+            } else if (!allowNetworkEpgFetch) {
+                if (cachedFallbackNowNext.isNotEmpty()) {
+                    onProgress(IptvLoadProgress("Using cached EPG", 92))
+                    System.err.println("[EPG] Skipping broad network EPG fetch and using cached fallback (${cachedFallbackNowNext.size} channels)")
+                    cachedFallbackNowNext
+                } else {
+                    System.err.println("[EPG] Skipping broad network EPG fetch until category-scoped guide request")
+                    emptyMap()
+                }
             } else if (epgCandidates.isEmpty() && xtreamCreds == null) {
                 if (cachedFallbackNowNext.isNotEmpty()) {
                     onProgress(IptvLoadProgress("Using cached EPG", 92))
@@ -944,15 +978,16 @@ class IptvRepository @Inject constructor(
                 val config = observeConfig().first()
                 val profileId = profileManager.getProfileIdSync()
                 ensureCacheOwnership(profileId, config)
-                if (config.m3uUrl.isBlank()) return@withLock
+                if (!hasAnyConfiguredSource(config)) return@withLock
                 if (cachedChannels.isNotEmpty()) return@withLock
 
                 val cached = readCache(config) ?: return@withLock
                 cachedChannels = cached.channels
-                cachedGroupedChannels = buildGroupedChannels(cached.channels)
+                cachedGroupedChannels = emptyMap()
                 cachedNowNext = ConcurrentHashMap(cached.nowNext)
                 cachedPlaylistAt = cached.loadedAtEpochMs
                 cachedEpgAt = cached.loadedAtEpochMs
+                reDeriveCachedNowNext(cached.channels.asSequence().map { it.id }.toSet())
             }
         }
     }
@@ -968,7 +1003,7 @@ class IptvRepository @Inject constructor(
                 val profileId = profileManager.getProfileIdSync()
                 ensureCacheOwnership(profileId, config)
 
-                if (config.m3uUrl.isBlank()) {
+                if (!hasAnyConfiguredSource(config)) {
                     return@withLock IptvSnapshot(
                         channels = emptyList(),
                         grouped = emptyMap(),
@@ -982,7 +1017,7 @@ class IptvRepository @Inject constructor(
                 if (cachedChannels.isEmpty()) {
                     val cached = readCache(config) ?: return@withLock null
                     cachedChannels = cached.channels
-                    cachedGroupedChannels = buildGroupedChannels(cached.channels)
+                    cachedGroupedChannels = emptyMap()
                     cachedNowNext = ConcurrentHashMap(cached.nowNext)
                     cachedPlaylistAt = cached.loadedAtEpochMs
                     cachedEpgAt = cached.loadedAtEpochMs
@@ -991,11 +1026,7 @@ class IptvRepository @Inject constructor(
 
                 val favoriteGroups = observeFavoriteGroups().first()
                 val favoriteChannels = observeFavoriteChannels().first()
-                val grouped = if (cachedGroupedChannels.isNotEmpty()) {
-                    cachedGroupedChannels
-                } else {
-                    buildGroupedChannels(cachedChannels).also { cachedGroupedChannels = it }
-                }
+                val grouped = cachedGroupedChannels
                 val loadedAtMillis = if (cachedPlaylistAt > 0L) cachedPlaylistAt else System.currentTimeMillis()
 
                 val nowNext = reDeriveCachedNowNext(cachedChannels.asSequence().map { it.id }.toSet()) ?: cachedNowNext
@@ -1035,11 +1066,7 @@ class IptvRepository @Inject constructor(
         if (channels.isEmpty()) return null
         val favoriteGroups = observeFavoriteGroups().first()
         val favoriteChannels = observeFavoriteChannels().first()
-        val grouped = if (cachedGroupedChannels.isNotEmpty()) {
-            cachedGroupedChannels
-        } else {
-            buildGroupedChannels(channels).also { cachedGroupedChannels = it }
-        }
+        val grouped = cachedGroupedChannels
         val loadedAtMillis = if (cachedPlaylistAt > 0L) cachedPlaylistAt else System.currentTimeMillis()
         val nowNext = reDeriveCachedNowNext(channels.asSequence().map { it.id }.toSet()) ?: cachedNowNext
         return IptvSnapshot(
@@ -1117,15 +1144,22 @@ class IptvRepository @Inject constructor(
      *
      * @return A map of channel ID to `IptvNowNext` containing the updated EPG entries for those channels, or `null` if Xtream credentials are not available or no EPG data was retrieved.
      */
-    suspend fun refreshEpgForChannels(channelIds: Set<String>): Map<String, IptvNowNext>? {
+    suspend fun refreshEpgForChannels(
+        channelIds: Set<String>,
+        maxChannels: Int = startupShortEpgChannelLimit
+    ): Map<String, IptvNowNext>? {
         if (channelIds.isEmpty()) return null
         return withContext(Dispatchers.IO) {
             val config = observeConfig().first()
-            val creds = resolveXtreamCredentials(config.epgUrl)
-                ?: resolveXtreamCredentials(config.m3uUrl)
+            val creds = resolveXtreamCredentials(config)
                 ?: return@withContext null
 
-            val channels = cachedChannels.filter { it.id in channelIds }
+            val requested = if (maxChannels > 0) {
+                channelIds.take(maxChannels).toHashSet()
+            } else {
+                channelIds
+            }
+            val channels = cachedChannels.filter { it.id in requested }
             if (channels.isEmpty()) return@withContext null
 
             // Build lookups for these channels only
@@ -1143,7 +1177,7 @@ class IptvRepository @Inject constructor(
             val xtreamChannels = channels.filter { resolveXtreamStreamId(it) != null }
             if (xtreamChannels.isEmpty()) return@withContext null
 
-            System.err.println("[EPG-Refresh] Fetching short EPG for ${xtreamChannels.size} favorite channels")
+            System.err.println("[EPG-Refresh] Fetching short EPG for ${xtreamChannels.size} requested channels")
 
             val streamIds = xtreamChannels.mapNotNull { resolveXtreamStreamId(it) }
             var errors = 0
@@ -1160,9 +1194,96 @@ class IptvRepository @Inject constructor(
             // Merge into cache (in-place, no copy)
             cachedNowNext.putAll(freshNowNext)
             cachedEpgAt = System.currentTimeMillis()
+            persistCurrentCacheSnapshot(config, cachedEpgAt)
 
             System.err.println("[EPG-Refresh] Updated ${freshNowNext.size} channels in cache")
             freshNowNext
+        }
+    }
+
+    private fun persistCurrentCacheSnapshot(config: IptvConfig, loadedAtMs: Long = System.currentTimeMillis()) {
+        val channels = cachedChannels
+        if (channels.isEmpty()) return
+        val nowNext = cachedNowNext
+        writeCache(
+            config = config,
+            channels = channels,
+            nowNext = nowNext,
+            loadedAtMs = loadedAtMs.coerceAtLeast(cachedPlaylistAt.coerceAtLeast(loadedAtMs))
+        )
+    }
+
+    private suspend fun fetchFreshChannelsForStartup(config: IptvConfig): Pair<List<IptvChannel>, com.arflix.tv.data.api.StalkerApi?>? {
+        val activeLists = activePlaylists(config)
+        if (activeLists.isEmpty() && config.stalkerPortalUrl.isBlank()) return null
+
+        if (config.m3uUrl.isBlank() && config.stalkerPortalUrl.isNotBlank()) {
+            val stalker = com.arflix.tv.data.api.StalkerApi(config.stalkerPortalUrl, config.stalkerMacAddress)
+            if (!stalker.handshake()) return null
+            stalker.getProfile()
+            val channels = stalker.getChannels()
+            return if (channels.isNotEmpty()) channels to stalker else null
+        }
+
+        val channels = coroutineScope {
+            activeLists.map { playlist ->
+                async {
+                    fetchChannelsForPlaylistWithRetries(playlist) { }
+                        .map { channel ->
+                            channel.copy(
+                                id = "${playlist.id}:${channel.id}",
+                                group = if (playlist.name.isNotBlank()) {
+                                    "${playlist.name} • ${channel.group}"
+                                } else {
+                                    channel.group
+                                }
+                            )
+                        }
+                }
+            }.awaitAll().flatten()
+        }
+        return if (channels.isNotEmpty()) channels to null else null
+    }
+
+    private suspend fun storeStartupChannels(
+        config: IptvConfig,
+        channels: List<IptvChannel>,
+        stalkerApi: com.arflix.tv.data.api.StalkerApi?
+    ) {
+        loadMutex.withLock {
+            cachedChannels = channels
+            cachedGroupedChannels = buildGroupedChannels(channels)
+            cachedPlaylistAt = System.currentTimeMillis()
+            if (stalkerApi != null) {
+                cachedStalkerApi = stalkerApi
+            }
+            val validIds = channels.asSequence().map { it.id }.toSet()
+            if (cachedNowNext.isNotEmpty()) {
+                cachedNowNext.keys.retainAll(validIds)
+            }
+            persistCurrentCacheSnapshot(config, cachedPlaylistAt)
+        }
+    }
+
+    suspend fun prefetchFreshStartupData() {
+        if (!startupPrefetchInFlight.compareAndSet(false, true)) return
+        try {
+            warmupFromCacheOnly()
+            val config = observeConfig().first()
+            if (!hasAnyConfiguredSource(config)) return
+
+            val cached = getMemoryCachedSnapshot() ?: getCachedSnapshotOrNull()
+            if (cached == null || cached.channels.isEmpty()) {
+                val fresh = withTimeoutOrNull(25_000L) {
+                    fetchFreshChannelsForStartup(config)
+                }
+                if (fresh != null) {
+                    storeStartupChannels(config, fresh.first, fresh.second)
+                }
+                return
+            }
+        } finally {
+            startupPrefetchInFlight.set(false)
         }
     }
 
@@ -1354,6 +1475,27 @@ class IptvRepository @Inject constructor(
         if (profileManager.getProfileIdSync() == safeProfileId) {
             invalidateCache()
         }
+    }
+
+    private suspend fun fetchChannelsForPlaylistWithRetries(
+        playlist: IptvPlaylistEntry,
+        onProgress: (IptvLoadProgress) -> Unit
+    ): List<IptvChannel> {
+        resolveXtreamCredentials(playlist)?.let { creds ->
+            onProgress(IptvLoadProgress("Detected Xtream provider. Loading live channels...", 6))
+            runCatching {
+                withTimeoutOrNull(30_000L) {
+                    fetchXtreamLiveChannels(creds, onProgress)
+                } ?: throw IllegalStateException("Xtream provider timed out while loading live channels.")
+            }
+                .onSuccess { channels ->
+                    if (channels.isNotEmpty()) {
+                        onProgress(IptvLoadProgress("Loaded ${channels.size} live channels from provider API", 95))
+                        return channels
+                    }
+                }
+        }
+        return fetchAndParseM3uWithRetries(playlist.m3uUrl, onProgress)
     }
 
     private suspend fun fetchAndParseM3uWithRetries(
@@ -3075,10 +3217,13 @@ class IptvRepository @Inject constructor(
         return XtreamCredentials(baseUrl, username, password)
     }
 
+    private fun resolveXtreamCredentials(playlist: IptvPlaylistEntry): XtreamCredentials? {
+        return resolveXtreamCredentials(playlist.epgUrl)
+            ?: resolveXtreamCredentials(playlist.m3uUrl)
+    }
+
     private fun resolveEpgCandidates(config: IptvConfig): List<String> {
-        val allLists = config.playlists.filter { it.enabled }.ifEmpty {
-            if (config.m3uUrl.isNotBlank()) listOf(IptvPlaylistEntry("list_1", "List 1", config.m3uUrl, config.epgUrl, enabled = true)) else emptyList()
-        }
+        val allLists = activePlaylists(config)
         return buildList {
             allLists.forEach { list ->
                 list.epgUrl.takeIf { it.isNotBlank() }?.let { add(it) }
@@ -3096,6 +3241,16 @@ class IptvRepository @Inject constructor(
             }
             discoveredM3uEpgUrl?.let { add(it) }
         }.distinct()
+    }
+
+    private fun resolveXtreamCredentials(config: IptvConfig): XtreamCredentials? {
+        activePlaylists(config).forEach { playlist ->
+            resolveXtreamCredentials(playlist.epgUrl)?.let { return it }
+            resolveXtreamCredentials(playlist.m3uUrl)?.let { return it }
+        }
+        resolveXtreamCredentials(config.epgUrl)?.let { return it }
+        resolveXtreamCredentials(config.m3uUrl)?.let { return it }
+        return null
     }
 
     private suspend fun fetchXtreamLiveChannels(
@@ -3426,7 +3581,7 @@ class IptvRepository @Inject constructor(
         // to serve per playlist, so effectively "all available". Combined
         // with the widened concurrency in fetchXtreamEpgListingsAsync this
         // completes within the 60s budget for most providers.
-        val toFetch = prioritized.take(25000)
+        val toFetch = prioritized.take(generalShortEpgChannelLimit)
         System.err.println("[EPG] Xtream short EPG: fetching ${toFetch.size}/${xtreamChannels.size} channels")
         if (toFetch.isEmpty()) return null
 
@@ -4275,6 +4430,28 @@ class IptvRepository @Inject constructor(
 
     private fun buildConfigSignature(config: IptvConfig): String {
         val digest = MessageDigest.getInstance("SHA-256")
+        val playlistSignature = config.playlists.joinToString(separator = "||") { playlist ->
+            listOf(
+                playlist.id.trim(),
+                playlist.name.trim(),
+                playlist.m3uUrl.trim(),
+                playlist.epgUrl.trim(),
+                playlist.enabled.toString()
+            ).joinToString("|")
+        }
+        val raw = listOf(
+            config.m3uUrl.trim(),
+            config.epgUrl.trim(),
+            config.stalkerPortalUrl.trim(),
+            config.stalkerMacAddress.trim(),
+            playlistSignature
+        ).joinToString("||")
+        return digest.digest(raw.toByteArray(StandardCharsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+    }
+
+    private fun buildLegacyConfigSignature(config: IptvConfig): String {
+        val digest = MessageDigest.getInstance("SHA-256")
         val raw = "${config.m3uUrl.trim()}|${config.epgUrl.trim()}"
         return digest.digest(raw.toByteArray(StandardCharsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
@@ -4349,7 +4526,14 @@ class IptvRepository @Inject constructor(
             val text = decodeCacheText(file.readBytes())
             if (text.isBlank()) return null
             val payload = gson.fromJson(text, IptvCachePayload::class.java) ?: return null
-            if (payload.configSignature != buildConfigSignature(config)) return null
+            val currentSignature = buildConfigSignature(config)
+            val legacySignature = buildLegacyConfigSignature(config)
+            val cacheSignature = payload.configSignature.trim()
+            if (
+                cacheSignature.isNotBlank() &&
+                cacheSignature != currentSignature &&
+                cacheSignature != legacySignature
+            ) return null
             if (payload.channels.isEmpty()) return null
             payload
         }.getOrNull()

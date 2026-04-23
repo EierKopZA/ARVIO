@@ -173,6 +173,110 @@ class HomeViewModel @Inject constructor(
         return "${mediaType.name}:$id"
     }
 
+    private fun continueWatchingShowKey(item: ContinueWatchingItem): String {
+        return continueWatchingKey(item.mediaType, item.id)
+    }
+
+    private fun parseContinueWatchingUpdatedAt(primary: String?, fallback: String? = null): Long {
+        fun parse(value: String?): Long {
+            if (value.isNullOrBlank()) return 0L
+            return try {
+                java.time.Instant.parse(value).toEpochMilli()
+            } catch (_: Exception) {
+                0L
+            }
+        }
+        return maxOf(parse(primary), parse(fallback))
+    }
+
+    private fun mergeContinueWatchingVisuals(
+        preferred: ContinueWatchingItem,
+        fallback: ContinueWatchingItem
+    ): ContinueWatchingItem {
+        return preferred.copy(
+            title = preferred.title.ifBlank { fallback.title },
+            episodeTitle = preferred.episodeTitle ?: fallback.episodeTitle,
+            backdropPath = preferred.backdropPath ?: fallback.backdropPath,
+            posterPath = preferred.posterPath ?: fallback.posterPath,
+            streamKey = preferred.streamKey ?: fallback.streamKey,
+            streamAddonId = preferred.streamAddonId ?: fallback.streamAddonId,
+            streamTitle = preferred.streamTitle ?: fallback.streamTitle,
+            year = preferred.year.ifBlank { fallback.year },
+            releaseDate = preferred.releaseDate.ifBlank { fallback.releaseDate },
+            overview = preferred.overview.ifBlank { fallback.overview },
+            imdbRating = preferred.imdbRating.ifBlank { fallback.imdbRating },
+            duration = preferred.duration.ifBlank { fallback.duration },
+            budget = preferred.budget ?: fallback.budget,
+            updatedAtMs = maxOf(preferred.updatedAtMs, fallback.updatedAtMs)
+        )
+    }
+
+    private fun mergeTraktAndRecentLocalContinueWatching(
+        traktItems: List<ContinueWatchingItem>,
+        localItems: List<ContinueWatchingItem>,
+        historyItems: List<ContinueWatchingItem>
+    ): List<ContinueWatchingItem> {
+        val nowMs = System.currentTimeMillis()
+        val localOverrideWindowMs = 15 * 60_000L
+        val freshestLocalByShow = (localItems + historyItems)
+            .groupBy(::continueWatchingShowKey)
+            .mapValues { (_, candidates) ->
+                candidates.maxWithOrNull(
+                    compareBy<ContinueWatchingItem> { it.updatedAtMs }
+                        .thenBy { it.resumePositionSeconds }
+                        .thenBy { it.progress }
+                )
+            }
+
+        val merged = mutableListOf<ContinueWatchingItem>()
+        val seenShowKeys = mutableSetOf<String>()
+
+        traktItems.forEach { traktItem ->
+            val showKey = continueWatchingShowKey(traktItem)
+            val freshestLocal = freshestLocalByShow[showKey]
+            val sameEpisode = freshestLocal != null &&
+                freshestLocal.mediaType == traktItem.mediaType &&
+                freshestLocal.id == traktItem.id &&
+                freshestLocal.season == traktItem.season &&
+                freshestLocal.episode == traktItem.episode
+            val recentLocalOverride = freshestLocal != null &&
+                freshestLocal.updatedAtMs > 0L &&
+                nowMs - freshestLocal.updatedAtMs <= localOverrideWindowMs
+
+            val chosen = when {
+                sameEpisode && freshestLocal != null ->
+                    mergeContinueWatchingVisuals(
+                        preferred = freshestLocal.copy(
+                            resumePositionSeconds = maxOf(traktItem.resumePositionSeconds, freshestLocal.resumePositionSeconds),
+                            durationSeconds = maxOf(traktItem.durationSeconds, freshestLocal.durationSeconds),
+                            progress = maxOf(traktItem.progress, freshestLocal.progress)
+                        ),
+                        fallback = traktItem
+                    )
+                recentLocalOverride && freshestLocal != null ->
+                    mergeContinueWatchingVisuals(freshestLocal, traktItem)
+                else -> traktItem
+            }
+
+            merged += chosen
+            seenShowKeys += showKey
+        }
+
+        freshestLocalByShow
+            .asSequence()
+            .filter { (showKey, item) ->
+                item != null &&
+                    showKey !in seenShowKeys &&
+                    item.updatedAtMs > 0L &&
+                    nowMs - item.updatedAtMs <= localOverrideWindowMs
+            }
+            .mapNotNull { (_, item) -> item }
+            .sortedByDescending { it.updatedAtMs }
+            .forEach { merged += it }
+
+        return merged
+    }
+
     private fun overviewLooksTruncated(overview: String): Boolean {
         val value = overview.trim()
         return value.isBlank() || value.endsWith("...") || value.length < 140
@@ -878,7 +982,7 @@ class HomeViewModel @Inject constructor(
                 val dismissedKeys = runCatching {
                     traktRepository.getDismissedContinueWatchingShowKeys()
                 }.getOrDefault(emptySet())
-                val cached = traktRepository.preloadContinueWatchingCache().filterNot { item ->
+                val cached = preloadStartupContinueWatchingItems().filterNot { item ->
                     dismissedKeys.contains("${item.mediaType.name}:${item.id}")
                 }
                 if (cached.isNotEmpty()) {
@@ -956,17 +1060,13 @@ class HomeViewModel @Inject constructor(
             }
         }
         viewModelScope.launch(Dispatchers.IO) {
-            delay(if (isLowRamDevice) 15_000L else 10_000L)
+            delay(if (isLowRamDevice) 4_000L else 2_500L)
             // Warm IPTV channels + EPG in background after startup settles.
             // First load from disk cache (fast), then do targeted network EPG refresh
             // for favorite channels so home screen shows current program info.
             try {
-                // Phase 1: Load channels from disk cache
-                val snapshot = iptvRepository.getMemoryCachedSnapshot()
-                if (snapshot == null || snapshot.channels.isEmpty()) {
-                    // No disk cache — do full network load so Favorite TV row can appear
-                    return@launch
-                }
+                iptvRepository.prefetchFreshStartupData()
+                val snapshot = iptvRepository.getMemoryCachedSnapshot() ?: return@launch
                 // Phase 2: Refresh EPG for favorite channels (lightweight network call)
                 val snap = iptvRepository.getMemoryCachedSnapshot()
                 if (snap != null) {
@@ -1164,7 +1264,7 @@ class HomeViewModel @Inject constructor(
             // immediately. Avoids the 30–60s cold-refresh wait that used to
             // leave the CW row empty for minutes (especially when the Trakt
             // progress endpoint throttles with HTTP 429).
-            val instant = runCatching { resolveContinueWatchingItems(forceFresh = false) }
+                val instant = runCatching { resolveContinueWatchingItemsStable(forceFresh = false) }
                 .getOrDefault(emptyList())
             if (instant.isNotEmpty()) {
                 publishContinueWatching(instant)
@@ -1173,7 +1273,7 @@ class HomeViewModel @Inject constructor(
             // SLOW PATH — do a freshness refresh in the background. If it
             // returns something different, republish. Swallows transient
             // Trakt 429s so the visible row doesn't blink back to empty.
-            val fresh = runCatching { resolveContinueWatchingItems(forceFresh = true) }
+                val fresh = runCatching { resolveContinueWatchingItemsStable(forceFresh = true) }
                 .getOrDefault(emptyList())
             if (fresh.isNotEmpty() && fresh != instant) {
                 publishContinueWatching(fresh)
@@ -1243,7 +1343,7 @@ class HomeViewModel @Inject constructor(
                     }
                 }
 
-                val cachedContinueWatching = traktRepository.preloadContinueWatchingCache()
+                val cachedContinueWatching = preloadStartupContinueWatchingItems()
                 val savedCatalogs = withContext(networkDispatcher) {
                     runCatching {
                         streamRepository.removeCustomAddonsByUrl(
@@ -1715,7 +1815,7 @@ class HomeViewModel @Inject constructor(
                     if (requestId != loadHomeRequestId) return@cw
                     delay(if (isLowRamDevice) 2_200L else 1_200L)
                     if (requestId != loadHomeRequestId) return@cw
-                    val freshContinueWatching = resolveContinueWatchingItems(forceFresh = true)
+                    val freshContinueWatching = resolveContinueWatchingItemsStable(forceFresh = true)
                     if (requestId != loadHomeRequestId) return@cw
 
                     if (freshContinueWatching.isNotEmpty()) {
@@ -2224,7 +2324,7 @@ class HomeViewModel @Inject constructor(
                     return@launch
                 }
 
-                val resolvedContinueWatching = resolveContinueWatchingItems(forceFresh = force)
+                val resolvedContinueWatching = resolveContinueWatchingItemsStable(forceFresh = force)
 
                 if (resolvedContinueWatching.isNotEmpty()) {
                     val mergedContinueWatching = mergeContinueWatchingResumeData(resolvedContinueWatching)
@@ -2331,6 +2431,115 @@ class HomeViewModel @Inject constructor(
         } catch (_: Exception) {
             emptyList()
         }
+    }
+
+    private suspend fun loadContinueWatchingFromHistoryStable(): List<ContinueWatchingItem> {
+        return try {
+            val entries = watchHistoryRepository.getContinueWatching()
+            if (entries.isEmpty()) return emptyList()
+            val mapped = entries.distinctBy { entry ->
+                "${entry.media_type}:${entry.show_tmdb_id}"
+            }.mapNotNull { entry ->
+                val mediaType = if (entry.media_type == "tv") MediaType.TV else MediaType.MOVIE
+                val storedPct = (entry.progress * 100f).toInt()
+                val derivedPct = if (storedPct <= 0 && entry.duration_seconds > 0 && entry.position_seconds > 0) {
+                    ((entry.position_seconds.toFloat() / entry.duration_seconds.toFloat()) * 100f).toInt()
+                } else {
+                    storedPct
+                }
+                ContinueWatchingItem(
+                    id = entry.show_tmdb_id,
+                    title = entry.title ?: return@mapNotNull null,
+                    mediaType = mediaType,
+                    progress = derivedPct.coerceIn(0, 100),
+                    resumePositionSeconds = entry.position_seconds.coerceAtLeast(0L),
+                    durationSeconds = entry.duration_seconds.coerceAtLeast(0L),
+                    season = entry.season,
+                    episode = entry.episode,
+                    episodeTitle = entry.episode_title,
+                    backdropPath = entry.backdrop_path,
+                    posterPath = entry.poster_path,
+                    updatedAtMs = parseContinueWatchingUpdatedAt(entry.updated_at, entry.paused_at)
+                )
+            }
+            traktRepository.enrichContinueWatchingItems(mapped)
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private suspend fun resolveContinueWatchingItemsStable(forceFresh: Boolean): List<ContinueWatchingItem> {
+        val isTraktAuthenticated = runCatching { traktRepository.isAuthenticated.first() }.getOrDefault(false)
+        val items = if (isTraktAuthenticated) {
+            val traktItems = if (forceFresh) {
+                runCatching { traktRepository.getContinueWatching(forceRefresh = true) }.getOrDefault(emptyList())
+            } else {
+                val cached = traktRepository.getCachedContinueWatching()
+                if (cached.isNotEmpty()) cached else runCatching { traktRepository.getContinueWatching() }.getOrDefault(emptyList())
+            }
+            val localItems = runCatching { traktRepository.getLocalContinueWatching() }.getOrDefault(emptyList())
+            val historyItems = loadContinueWatchingFromHistoryStable()
+            mergeTraktAndRecentLocalContinueWatching(
+                traktItems = traktItems,
+                localItems = localItems,
+                historyItems = historyItems
+            )
+        } else {
+            val historyItems = loadContinueWatchingFromHistoryStable()
+            if (historyItems.isNotEmpty()) {
+                historyItems
+            } else {
+                runCatching { traktRepository.getLocalContinueWatching() }.getOrDefault(emptyList())
+            }
+        }
+
+        val persistedDismissedKeys = runCatching {
+            traktRepository.getDismissedContinueWatchingShowKeys()
+        }.getOrDefault(emptySet())
+
+        return sanitizeContinueWatchingItems(items)
+            .filterNot { item ->
+                val showKey = continueWatchingKey(item.mediaType, item.id)
+                dismissedContinueWatchingKeys.contains(showKey) || persistedDismissedKeys.contains(showKey)
+            }
+            .filter { item ->
+                if (isTraktAuthenticated) true else item.progress in 1..99
+            }
+            .take(Constants.MAX_CONTINUE_WATCHING)
+    }
+
+    private suspend fun preloadStartupContinueWatchingItems(): List<ContinueWatchingItem> {
+        val isTraktAuthenticated = runCatching { traktRepository.isAuthenticated.first() }.getOrDefault(false)
+        val items = if (isTraktAuthenticated) {
+            val localItems = runCatching { traktRepository.getLocalContinueWatching() }.getOrDefault(emptyList())
+            val historyItems = loadContinueWatchingFromHistoryStable()
+            mergeTraktAndRecentLocalContinueWatching(
+                traktItems = emptyList(),
+                localItems = localItems,
+                historyItems = historyItems
+            )
+        } else {
+            val historyItems = loadContinueWatchingFromHistoryStable()
+            if (historyItems.isNotEmpty()) {
+                historyItems
+            } else {
+                runCatching { traktRepository.getLocalContinueWatching() }.getOrDefault(emptyList())
+            }
+        }
+
+        val persistedDismissedKeys = runCatching {
+            traktRepository.getDismissedContinueWatchingShowKeys()
+        }.getOrDefault(emptySet())
+
+        return sanitizeContinueWatchingItems(items)
+            .filterNot { item ->
+                val showKey = continueWatchingKey(item.mediaType, item.id)
+                dismissedContinueWatchingKeys.contains(showKey) || persistedDismissedKeys.contains(showKey)
+            }
+            .filter { item ->
+                if (isTraktAuthenticated) true else item.progress in 1..99
+            }
+            .take(Constants.MAX_CONTINUE_WATCHING)
     }
 
     private suspend fun mergeContinueWatchingResumeData(

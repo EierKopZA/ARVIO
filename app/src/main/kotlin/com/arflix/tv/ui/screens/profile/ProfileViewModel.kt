@@ -128,14 +128,10 @@ class ProfileViewModel @Inject constructor(
 
                 // Defer IPTV warmup/network parse to keep initial Home navigation smooth.
                 viewModelScope.launch(Dispatchers.IO) {
-                    delay(6_000L)
+                    delay(250L)
                     if (profileRepository.getActiveProfileId() != profile.id) return@launch
                     runCatching {
-                        iptvRepository.warmupFromCacheOnly()
-                        iptvRepository.loadSnapshot(
-                            forcePlaylistReload = false,
-                            forceEpgReload = false
-                        )
+                        iptvRepository.prefetchFreshStartupData()
                     }
                 }
             } finally {
