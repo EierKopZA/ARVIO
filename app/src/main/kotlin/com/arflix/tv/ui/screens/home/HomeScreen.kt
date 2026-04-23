@@ -5,6 +5,9 @@ package com.arflix.tv.ui.screens.home
 import android.content.Context
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -17,6 +20,7 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -168,6 +172,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.abs
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 
@@ -299,6 +304,123 @@ private fun createHomeHeroPlaybackHandles(context: Context): HomeHeroPlaybackHan
         player = player,
         hlsFactory = heroHlsFactory
     )
+}
+
+private suspend fun androidx.compose.foundation.lazy.LazyListState.animateHomeScrollDelta(
+    deltaPx: Float,
+    durationMillis: Int
+) {
+    if (abs(deltaPx) <= 1f) return
+    scroll(scrollPriority = MutatePriority.PreventUserInput) {
+        var previousValue = 0f
+        animate(
+            initialValue = 0f,
+            targetValue = deltaPx,
+            animationSpec = tween(durationMillis = durationMillis, easing = FastOutSlowInEasing)
+        ) { value, _ ->
+            val step = value - previousValue
+            if (abs(step) > 0.01f) {
+                scrollBy(step)
+            }
+            previousValue = value
+        }
+    }
+}
+
+@Composable
+private fun HomeBackdropCrossfade(
+    backdropUrl: String?,
+    backdropSize: Pair<Int, Int>,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var displayedBackdropUrl by remember { mutableStateOf<String?>(null) }
+    var pendingBackdropUrl by remember { mutableStateOf<String?>(null) }
+    var pendingBackdropReady by remember { mutableStateOf(false) }
+    val pendingAlpha = remember { Animatable(0f) }
+    val (backdropWidthPx, backdropHeightPx) = backdropSize
+
+    LaunchedEffect(backdropUrl) {
+        when {
+            backdropUrl.isNullOrBlank() -> {
+                displayedBackdropUrl = null
+                pendingBackdropUrl = null
+                pendingBackdropReady = false
+                pendingAlpha.snapTo(0f)
+            }
+
+            displayedBackdropUrl == null -> {
+                displayedBackdropUrl = backdropUrl
+                pendingBackdropUrl = null
+                pendingBackdropReady = false
+                pendingAlpha.snapTo(0f)
+            }
+
+            displayedBackdropUrl == backdropUrl -> {
+                pendingBackdropUrl = null
+                pendingBackdropReady = false
+                pendingAlpha.snapTo(0f)
+            }
+
+            else -> {
+                pendingBackdropUrl = backdropUrl
+                pendingBackdropReady = false
+                pendingAlpha.snapTo(0f)
+            }
+        }
+    }
+
+    LaunchedEffect(pendingBackdropUrl, pendingBackdropReady) {
+        val target = pendingBackdropUrl ?: return@LaunchedEffect
+        if (!pendingBackdropReady) return@LaunchedEffect
+        pendingAlpha.snapTo(0f)
+        pendingAlpha.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 420)
+        )
+        displayedBackdropUrl = target
+        pendingBackdropUrl = null
+        pendingBackdropReady = false
+        pendingAlpha.snapTo(0f)
+    }
+
+    fun buildBackdropRequest(url: String): ImageRequest =
+        ImageRequest.Builder(context)
+            .data(url)
+            .size(backdropWidthPx, backdropHeightPx)
+            .precision(Precision.INEXACT)
+            .allowHardware(true)
+            .crossfade(false)
+            .build()
+
+    Box(modifier = modifier) {
+        displayedBackdropUrl?.let { stableBackdropUrl ->
+            val request = remember(stableBackdropUrl, backdropWidthPx, backdropHeightPx) {
+                buildBackdropRequest(stableBackdropUrl)
+            }
+            AsyncImage(
+                model = request,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        pendingBackdropUrl?.let { nextBackdropUrl ->
+            val request = remember(nextBackdropUrl, backdropWidthPx, backdropHeightPx) {
+                buildBackdropRequest(nextBackdropUrl)
+            }
+            AsyncImage(
+                model = request,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                onSuccess = { pendingBackdropReady = true },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = pendingAlpha.value }
+            )
+        }
+    }
 }
 
 /**
@@ -684,20 +806,9 @@ fun HomeScreen(
             )
 
             if (showCinematicHomeLayer && currentBackdrop != null) {
-                val (backdropWidthPx, backdropHeightPx) = backdropSize
-                val request = remember(currentBackdrop, backdropWidthPx, backdropHeightPx) {
-                    ImageRequest.Builder(context)
-                        .data(currentBackdrop)
-                        .size(backdropWidthPx, backdropHeightPx)
-                        .precision(Precision.INEXACT)
-                        .allowHardware(true)
-                        .crossfade(false)
-                        .build()
-                }
-                AsyncImage(
-                    model = request,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
+                HomeBackdropCrossfade(
+                    backdropUrl = currentBackdrop,
+                    backdropSize = backdropSize,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -1630,11 +1741,11 @@ private fun MobileHeroCarousel(
                         }
                 ) {
                     // Backdrop image - Crop to fill without letterboxing
-                    if (backdropUrl != null) {
+                    backdropUrl?.let { mobileBackdropUrl ->
                         val (bw, bh) = backdropSizePx
-                        val request = remember(backdropUrl, bw, bh) {
+                        val request = remember(mobileBackdropUrl, bw, bh) {
                             ImageRequest.Builder(context)
-                                .data(backdropUrl)
+                                .data(mobileBackdropUrl)
                                 .size(bw, bh)
                                 .precision(Precision.INEXACT)
                                 .allowHardware(true)
@@ -2414,6 +2525,9 @@ private fun TvHomeRowsLayer(
             .padding(top = 24.dp)
     ) {
         val rowsViewportHeight = (maxHeight * 0.31f).coerceIn(260.dp, 340.dp)
+        val estimatedRowPitchPx = with(LocalDensity.current) {
+            (if (usePosterCards) 240.dp else 190.dp).toPx().coerceAtLeast(1f)
+        }
         val listState = rememberLazyListState()
         var lastAppliedTargetIndex by remember { mutableIntStateOf(-1) }
         // Only scroll the LazyColumn in response to actual user D-pad navigation,
@@ -2441,8 +2555,22 @@ private fun TvHomeRowsLayer(
             if (!initialPlacement && !recentUserNav) return@LaunchedEffect
 
             val jumpDistance = kotlin.math.abs(targetIndex - currentIndex)
-            if (!initialPlacement && jumpDistance == 1) {
-                listState.animateScrollToItem(index = targetIndex, scrollOffset = 0)
+            if (!initialPlacement && jumpDistance <= 2) {
+                val currentOffset = listState.firstVisibleItemScrollOffset
+                val visibleRowPitchPx = listState.layoutInfo.visibleItemsInfo
+                    .firstOrNull()
+                    ?.size
+                    ?.toFloat()
+                    ?.takeIf { it > 0f }
+                    ?: estimatedRowPitchPx
+                val deltaPx = ((targetIndex - currentIndex) * visibleRowPitchPx) - currentOffset
+                listState.animateHomeScrollDelta(
+                    deltaPx = deltaPx,
+                    durationMillis = if (jumpDistance == 1) 190 else 220
+                )
+                if (listState.firstVisibleItemIndex != targetIndex || listState.firstVisibleItemScrollOffset != 0) {
+                    listState.scrollToItem(index = targetIndex, scrollOffset = 0)
+                }
             } else {
                 listState.scrollToItem(index = targetIndex, scrollOffset = 0)
             }
@@ -2692,6 +2820,22 @@ private fun ContentRow(
     val itemSpanPx = remember(density, itemWidth, itemSpacing) {
         with(density) { (itemWidth + itemSpacing).toPx().coerceAtLeast(1f) }
     }
+    val rowIdleLiftPx = with(density) { 8.dp.toPx() }
+    val rowAlpha by animateFloatAsState(
+        targetValue = if (isCurrentRow) 1f else 0.9f,
+        animationSpec = tween(durationMillis = 170, easing = LinearOutSlowInEasing),
+        label = "home_row_alpha"
+    )
+    val rowScale by animateFloatAsState(
+        targetValue = if (isCurrentRow) 1f else 0.985f,
+        animationSpec = tween(durationMillis = 190, easing = FastOutSlowInEasing),
+        label = "home_row_scale"
+    )
+    val rowTranslationY by animateFloatAsState(
+        targetValue = if (isCurrentRow) 0f else rowIdleLiftPx,
+        animationSpec = tween(durationMillis = 190, easing = FastOutSlowInEasing),
+        label = "home_row_translation"
+    )
 
     // Keep focused card anchored by scrolling the row on every focus change.
     // Use smooth scroll (animated) for D-pad moves to avoid abrupt jumps.
@@ -2742,14 +2886,28 @@ private fun ContentRow(
         val targetOutsideViewport = focusedItemIndex < currentFirstIndex || focusedItemIndex > currentLastIndex
         val jumpDistance = kotlin.math.abs(scrollTargetIndex - currentFirstIndex)
         val offsetDelta = kotlin.math.abs(extraOffset - currentFirstOffset)
-        if (isFastScrolling || jumpDistance > 1) {
+        if (jumpDistance > 4) {
             rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
         } else if (
             scrollTargetIndex != currentFirstIndex ||
             targetOutsideViewport ||
             offsetDelta > 1
         ) {
-            rowState.animateScrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
+            val deltaPx = ((scrollTargetIndex - currentFirstIndex) * itemSpanPx) + (extraOffset - currentFirstOffset)
+            rowState.animateHomeScrollDelta(
+                deltaPx = deltaPx,
+                durationMillis = when {
+                    isFastScrolling -> 100
+                    jumpDistance >= 3 -> 180
+                    else -> 135
+                }
+            )
+            if (
+                rowState.firstVisibleItemIndex != scrollTargetIndex ||
+                kotlin.math.abs(rowState.firstVisibleItemScrollOffset - extraOffset) > 2
+            ) {
+                rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
+            }
         } else {
             rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
         }
@@ -2759,6 +2917,12 @@ private fun ContentRow(
 
     Column(
         modifier = Modifier
+            .graphicsLayer {
+                alpha = rowAlpha
+                scaleX = rowScale
+                scaleY = rowScale
+                translationY = rowTranslationY
+            }
             .padding(bottom = 12.dp)
     ) {
         // Section title - clean white text, aligned with cards

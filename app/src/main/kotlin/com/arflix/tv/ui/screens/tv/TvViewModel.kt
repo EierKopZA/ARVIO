@@ -63,6 +63,7 @@ class TvViewModel @Inject constructor(
     private var lastVisibleEpgRefreshKey: String? = null
     private var lastVisibleEpgRefreshAt: Long = 0L
     private var tvSessionSaveJob: Job? = null
+    private var startupGuideWarmupKey: String? = null
 
     /**
      * In-memory cache of the live-TV enriched channel list + category tree.
@@ -93,6 +94,7 @@ class TvViewModel @Inject constructor(
                         loadingPercent = 0
                     )
                 )
+                maybeWarmStartupGuide()
                 warmXtreamVodCache()
                 val hasPotentialEpg = config.epgUrl.isNotBlank() || config.m3uUrl.contains("get.php", ignoreCase = true) || config.m3uUrl.contains("player_api.php", ignoreCase = true)
                 val needsChannelReload = config.m3uUrl.isNotBlank() && cached.channels.isEmpty()
@@ -129,6 +131,7 @@ class TvViewModel @Inject constructor(
                 .distinctUntilChanged()
                 .collect { session ->
                     _uiState.value = _uiState.value.copy(tvSession = session)
+                    maybeWarmStartupGuide()
                 }
         }
     }
@@ -156,6 +159,7 @@ class TvViewModel @Inject constructor(
                     groupOrder = groupOrder
                 )
                 setUiState(_uiState.value.copy(config = config, snapshot = snapshot))
+                maybeWarmStartupGuide()
 
                 val hasAnyIptvConfig = config.m3uUrl.isNotBlank() ||
                     config.stalkerPortalUrl.isNotBlank() ||
@@ -243,6 +247,7 @@ class TvViewModel @Inject constructor(
                         loadingPercent = 0
                     )
                 )
+                maybeWarmStartupGuide()
                 warmXtreamVodCache()
                 if (!force && _uiState.value.isConfigured && snapshot.channels.isEmpty()) {
                     // Soft refresh returned empty even though IPTV is configured:
@@ -263,6 +268,7 @@ class TvViewModel @Inject constructor(
                             loadingPercent = 0
                         )
                     )
+                    maybeWarmStartupGuide()
                 } else {
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
@@ -481,6 +487,7 @@ class TvViewModel @Inject constructor(
         if (next == current) return
 
         _uiState.value = _uiState.value.copy(tvSession = next)
+        maybeWarmStartupGuide()
         tvSessionSaveJob?.cancel()
         tvSessionSaveJob = viewModelScope.launch(Dispatchers.IO) {
             kotlinx.coroutines.delay(if (markOpened || channelChanged) 0L else 220L)
@@ -502,6 +509,41 @@ class TvViewModel @Inject constructor(
         } else {
             setPreparedContent(nextState)
         }
+    }
+
+    private fun maybeWarmStartupGuide() {
+        val state = _uiState.value
+        if (state.channelsByGroup.isEmpty()) return
+
+        val preferredGroup = state.tvSession.lastGroupName
+            .takeIf { it.isNotBlank() && state.channelsByGroup[it].orEmpty().isNotEmpty() }
+            ?: state.groups.firstOrNull { state.channelsByGroup[it].orEmpty().isNotEmpty() }
+            ?: return
+
+        val preferredChannels = state.channelsByGroup[preferredGroup].orEmpty().take(72)
+        if (preferredChannels.isEmpty()) return
+
+        val coverage = preferredChannels.count { hasProgramData(state.snapshot.nowNext[it.id]) }
+        if (coverage >= minOf(preferredChannels.size, 12)) return
+
+        val preferredSelectedId = state.tvSession.lastChannelId
+            .takeIf { id -> id.isNotBlank() && preferredChannels.any { channel -> channel.id == id } }
+        val warmupKey = buildString {
+            append(preferredGroup)
+            append('|')
+            append(preferredChannels.firstOrNull()?.id.orEmpty())
+            append('|')
+            append(preferredChannels.size)
+            append('|')
+            append(preferredSelectedId.orEmpty())
+        }
+        if (warmupKey == startupGuideWarmupKey) return
+        startupGuideWarmupKey = warmupKey
+
+        prefetchVisibleCategoryEpg(
+            channelIds = preferredChannels.map { it.id },
+            selectedChannelId = preferredSelectedId ?: preferredChannels.firstOrNull()?.id
+        )
     }
 
     private fun scheduleIptvCloudSync() {

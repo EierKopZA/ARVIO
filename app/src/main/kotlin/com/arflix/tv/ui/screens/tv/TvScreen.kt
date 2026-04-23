@@ -1961,97 +1961,100 @@ private fun TimelineProgramLane(
     modifier: Modifier = Modifier
 ) {
     val nowAccent = AccentGreen
-    Box(modifier = modifier.clip(RoundedCornerShape(3.dp))) {
-        Row(modifier = Modifier.fillMaxSize()) {
-            val segments = remember(recentPrograms, nowProgram, upcomingPrograms, windowStart, windowEnd) {
-                buildProgramSegments(recentPrograms, nowProgram, upcomingPrograms, windowStart, windowEnd)
+    BoxWithConstraints(modifier = modifier.clip(RoundedCornerShape(3.dp))) {
+        val segments = remember(recentPrograms, nowProgram, upcomingPrograms, windowStart, windowEnd) {
+            buildTimelineSegments(recentPrograms, nowProgram, upcomingPrograms, windowStart, windowEnd)
+        }
+        if (segments.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.White.copy(alpha = 0.02f))
+                    .padding(horizontal = 8.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Text(
+                    "No EPG",
+                    style = ArflixTypography.caption.copy(fontSize = 10.sp),
+                    color = Color.White.copy(alpha = 0.15f)
+                )
             }
-            if (segments.isEmpty()) {
+        } else {
+            segments.forEach { seg ->
+                val segmentWidth = maxWidth * seg.widthRatio
+                if (segmentWidth <= 0.dp) return@forEach
+
+                val fillColor = when {
+                    seg.isFiller -> Color.White.copy(alpha = 0.01f)
+                    seg.isPast -> Color.White.copy(alpha = if (isRowFocused) 0.03f else 0.015f)
+                    seg.isNow && isRowPlaying -> nowAccent.copy(alpha = 0.08f)
+                    seg.isNow && isRowFocused -> Color.White.copy(alpha = 0.07f)
+                    seg.isNow -> Color.White.copy(alpha = 0.04f)
+                    isRowFocused -> Color.White.copy(alpha = 0.035f)
+                    else -> Color.White.copy(alpha = 0.02f)
+                }
+
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.White.copy(alpha = 0.02f))
-                        .padding(horizontal = 8.dp),
-                    contentAlignment = Alignment.CenterStart
+                        .offset(x = maxWidth * seg.startRatio)
+                        .width(segmentWidth)
+                        .fillMaxHeight()
+                        .padding(horizontal = 0.5.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(fillColor)
+                        .then(
+                            if (seg.isNow && (isRowFocused || isRowPlaying)) Modifier.border(
+                                width = 0.5.dp,
+                                color = if (isRowFocused) Color.White.copy(alpha = 0.2f)
+                                else nowAccent.copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(2.dp)
+                            ) else Modifier
+                        )
                 ) {
-                    Text(
-                        "No EPG",
-                        style = ArflixTypography.caption.copy(fontSize = 10.sp),
-                        color = Color.White.copy(alpha = 0.15f)
-                    )
-                }
-            } else {
-                segments.forEach { seg ->
-                    val fillColor = when {
-                        seg.isFiller -> Color.White.copy(alpha = 0.01f)
-                        seg.isPast -> Color.White.copy(alpha = if (isRowFocused) 0.03f else 0.015f)
-                        seg.isNow && isRowPlaying -> nowAccent.copy(alpha = 0.08f)
-                        seg.isNow && isRowFocused -> Color.White.copy(alpha = 0.07f)
-                        seg.isNow -> Color.White.copy(alpha = 0.04f)
-                        isRowFocused -> Color.White.copy(alpha = 0.035f)
-                        else -> Color.White.copy(alpha = 0.02f)
+                    if (seg.label.isNotBlank() && seg.widthRatio >= 0.08f) {
+                        Text(
+                            text = seg.label,
+                            style = ArflixTypography.caption.copy(
+                                fontSize = 10.sp,
+                                fontWeight = if (seg.isNow) FontWeight.Medium else FontWeight.Normal,
+                                lineHeight = 12.sp
+                            ),
+                            color = Color.White.copy(
+                                alpha = when {
+                                    seg.isFiller -> 0.2f
+                                    seg.isPast -> 0.2f
+                                    seg.isNow -> 0.85f
+                                    isRowFocused -> 0.55f
+                                    else -> 0.35f
+                                }
+                            ),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
                     }
-                    Box(
-                        modifier = Modifier
-                            .weight(seg.weight)
-                            .fillMaxHeight()
-                            .padding(horizontal = 0.5.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(fillColor)
-                            .then(
-                                if (seg.isNow && (isRowFocused || isRowPlaying)) Modifier.border(
-                                    width = 0.5.dp,
-                                    color = if (isRowFocused) Color.White.copy(alpha = 0.2f)
-                                        else nowAccent.copy(alpha = 0.15f),
-                                    shape = RoundedCornerShape(2.dp)
-                                ) else Modifier
-                            )
-                    ) {
-                        if (seg.label.isNotBlank()) {
-                            Text(
-                                text = seg.label,
-                                style = ArflixTypography.caption.copy(
-                                    fontSize = 10.sp,
-                                    fontWeight = if (seg.isNow) FontWeight.Medium else FontWeight.Normal,
-                                    lineHeight = 12.sp
-                                ),
-                                color = Color.White.copy(
-                                    alpha = when {
-                                        seg.isFiller -> 0.2f
-                                        seg.isPast -> 0.2f
-                                        seg.isNow -> 0.85f
-                                        isRowFocused -> 0.55f
-                                        else -> 0.35f
-                                    }
-                                ),
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier
-                                    .align(Alignment.CenterStart)
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                        if (seg.isNow && nowProgram != null) {
-                            val progDuration = (nowProgram.endUtcMillis - nowProgram.startUtcMillis).coerceAtLeast(1L)
-                            val progElapsed = (now - nowProgram.startUtcMillis).coerceIn(0, progDuration)
-                            val progFraction = (progElapsed.toFloat() / progDuration.toFloat()).coerceIn(0f, 1f)
+                    if (seg.isNow && nowProgram != null) {
+                        val progDuration = (nowProgram.endUtcMillis - nowProgram.startUtcMillis).coerceAtLeast(1L)
+                        val progElapsed = (now - nowProgram.startUtcMillis).coerceIn(0, progDuration)
+                        val progFraction = (progElapsed.toFloat() / progDuration.toFloat()).coerceIn(0f, 1f)
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .fillMaxWidth()
+                                .height(1.5.dp)
+                                .background(Color.White.copy(alpha = 0.04f))
+                        ) {
                             Box(
                                 modifier = Modifier
-                                    .align(Alignment.BottomStart)
-                                    .fillMaxWidth()
-                                    .height(1.5.dp)
-                                    .background(Color.White.copy(alpha = 0.04f))
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth(progFraction)
-                                        .fillMaxHeight()
-                                        .background(
-                                            if (isRowPlaying) nowAccent.copy(alpha = 0.6f)
-                                            else Color.White.copy(alpha = 0.3f)
-                                        )
-                                )
-                            }
+                                    .fillMaxWidth(progFraction)
+                                    .fillMaxHeight()
+                                    .background(
+                                        if (isRowPlaying) nowAccent.copy(alpha = 0.6f)
+                                        else Color.White.copy(alpha = 0.3f)
+                                    )
+                            )
                         }
                     }
                 }
@@ -2081,13 +2084,16 @@ private fun TimelineProgramLane(
 
 private data class ProgramSegment(
     val label: String,
-    val weight: Float,
+    val startRatio: Float,
+    val endRatio: Float,
     val isNow: Boolean,
     val isFiller: Boolean = false,
     val isPast: Boolean = false
-)
+) {
+    val widthRatio: Float get() = (endRatio - startRatio).coerceAtLeast(0f)
+}
 
-private fun buildProgramSegments(
+private fun buildTimelineSegments(
     recentPrograms: List<IptvProgram>,
     nowProgram: IptvProgram?,
     upcomingPrograms: List<IptvProgram>,
@@ -2095,15 +2101,12 @@ private fun buildProgramSegments(
     windowEnd: Long
 ): List<ProgramSegment> {
     val totalWindow = (windowEnd - windowStart).coerceAtLeast(1L).toFloat()
-    fun weight(start: Long, end: Long): Float {
-        val s = start.coerceIn(windowStart, windowEnd)
-        val e = end.coerceIn(windowStart, windowEnd)
-        val clamped = (e - s).coerceAtLeast(0L)
+    fun ratio(at: Long): Float {
+        val clamped = (at.coerceIn(windowStart, windowEnd) - windowStart).toFloat()
         return (clamped / totalWindow).coerceIn(0f, 1f)
     }
-    fun labelWithTime(program: IptvProgram, w: Float): String {
-        // Only prefix time when the segment is wide enough to show it
-        return if (w >= 0.12f) {
+    fun labelWithTime(program: IptvProgram, widthRatio: Float): String {
+        return if (widthRatio >= 0.16f) {
             val time = formatProgramTime(program.startUtcMillis)
             "$time  ${program.title}"
         } else {
@@ -2111,41 +2114,55 @@ private fun buildProgramSegments(
         }
     }
 
-    // Build a chronological list of all programs with their absolute times
     data class TimedProgram(val start: Long, val end: Long, val program: IptvProgram, val isNow: Boolean, val isPast: Boolean)
-    val allPrograms = mutableListOf<TimedProgram>()
-    recentPrograms.forEach { allPrograms += TimedProgram(it.startUtcMillis, it.endUtcMillis, it, isNow = false, isPast = true) }
-    nowProgram?.let { allPrograms += TimedProgram(it.startUtcMillis, it.endUtcMillis, it, isNow = true, isPast = false) }
-    upcomingPrograms.forEach { allPrograms += TimedProgram(it.startUtcMillis, it.endUtcMillis, it, isNow = false, isPast = false) }
-    allPrograms.sortBy { it.start }
+    val allPrograms = buildList {
+        recentPrograms.forEach { add(TimedProgram(it.startUtcMillis, it.endUtcMillis, it, isNow = false, isPast = true)) }
+        nowProgram?.let { add(TimedProgram(it.startUtcMillis, it.endUtcMillis, it, isNow = true, isPast = false)) }
+        upcomingPrograms.forEach { add(TimedProgram(it.startUtcMillis, it.endUtcMillis, it, isNow = false, isPast = false)) }
+    }
+        .distinctBy { timed -> Triple(timed.start, timed.end, timed.program.title) }
+        .sortedBy { it.start }
 
-    // Build segments with gap fillers between programs
     val items = mutableListOf<ProgramSegment>()
     var cursor = windowStart
     for (tp in allPrograms) {
-        val segStart = tp.start.coerceIn(windowStart, windowEnd)
+        val segStart = maxOf(tp.start.coerceIn(windowStart, windowEnd), cursor)
         val segEnd = tp.end.coerceIn(windowStart, windowEnd)
         if (segEnd <= segStart) continue
-        // Insert gap filler if there's space between cursor and this segment
         if (segStart > cursor) {
-            val gapW = ((segStart - cursor).toFloat() / totalWindow).coerceIn(0f, 1f)
-            if (gapW > 0.01f) items += ProgramSegment(label = "", weight = gapW, isNow = false, isFiller = true)
+            items += ProgramSegment(
+                label = "",
+                startRatio = ratio(cursor),
+                endRatio = ratio(segStart),
+                isNow = false,
+                isFiller = true
+            )
         }
-        val w = ((segEnd - segStart).toFloat() / totalWindow).coerceIn(0f, 1f)
-        if (w > 0.02f) items += ProgramSegment(labelWithTime(tp.program, w), w, isNow = tp.isNow, isPast = tp.isPast)
+        val widthRatio = ((segEnd - segStart).toFloat() / totalWindow).coerceIn(0f, 1f)
+        if (widthRatio > 0.006f) {
+            items += ProgramSegment(
+                label = labelWithTime(tp.program, widthRatio),
+                startRatio = ratio(segStart),
+                endRatio = ratio(segEnd),
+                isNow = tp.isNow,
+                isPast = tp.isPast
+            )
+        }
         cursor = segEnd.coerceAtLeast(cursor)
     }
-    // Trailing filler
     if (cursor < windowEnd) {
-        val trailW = ((windowEnd - cursor).toFloat() / totalWindow).coerceIn(0f, 1f)
-        if (trailW > 0.01f) items += ProgramSegment(label = "", weight = trailW, isNow = false, isFiller = true)
+        items += ProgramSegment(
+            label = "",
+            startRatio = ratio(cursor),
+            endRatio = ratio(windowEnd),
+            isNow = false,
+            isFiller = true
+        )
     }
-
-    val mergedItems = mergeDuplicateSegments(items)
-    return ensureReadableProgramWidths(mergedItems)
+    return mergeAdjacentTimelineSegments(items)
 }
 
-private fun mergeDuplicateSegments(items: List<ProgramSegment>): List<ProgramSegment> {
+private fun mergeAdjacentTimelineSegments(items: List<ProgramSegment>): List<ProgramSegment> {
     if (items.isEmpty()) return items
     val merged = mutableListOf<ProgramSegment>()
     items.forEach { seg ->
@@ -2154,48 +2171,15 @@ private fun mergeDuplicateSegments(items: List<ProgramSegment>): List<ProgramSeg
             last != null &&
             last.label.equals(seg.label, ignoreCase = true) &&
             last.isNow == seg.isNow &&
-            last.isFiller == seg.isFiller
+            last.isFiller == seg.isFiller &&
+            last.isPast == seg.isPast
         ) {
-            merged[merged.lastIndex] = last.copy(weight = last.weight + seg.weight)
+            merged[merged.lastIndex] = last.copy(endRatio = seg.endRatio)
         } else {
             merged += seg
         }
     }
     return merged
-}
-
-private fun ensureReadableProgramWidths(items: List<ProgramSegment>): List<ProgramSegment> {
-    if (items.isEmpty()) return items
-    val labeled = items.filter { it.label.isNotBlank() }
-    if (labeled.isEmpty()) return items
-
-    val minReadable = 0.14f
-
-    // Boost small labeled segments to minimum readable width
-    val boosted = items.map { seg ->
-        if (seg.label.isNotBlank()) seg.copy(weight = maxOf(seg.weight, minReadable)) else seg
-    }.toMutableList()
-
-    // Normalize: ensure total weights equal 1.0 by adjusting filler segments proportionally
-    val totalWeight = boosted.sumOf { it.weight.toDouble() }.toFloat()
-    if (totalWeight > 1.01f) {
-        // Shrink fillers first to compensate for boosted labels
-        val fillerTotal = boosted.filter { it.isFiller }.sumOf { it.weight.toDouble() }.toFloat()
-        val excess = totalWeight - 1f
-        if (fillerTotal > excess) {
-            val fillerFactor = (fillerTotal - excess) / fillerTotal
-            for (i in boosted.indices) {
-                if (boosted[i].isFiller) boosted[i] = boosted[i].copy(weight = boosted[i].weight * fillerFactor)
-            }
-        } else {
-            // Not enough filler to absorb - proportionally shrink everything
-            val factor = 1f / totalWeight
-            for (i in boosted.indices) boosted[i] = boosted[i].copy(weight = boosted[i].weight * factor)
-        }
-    }
-
-    // Remove zero-weight fillers
-    return boosted.filter { !(it.isFiller && it.weight < 0.01f) }
 }
 
 @Composable

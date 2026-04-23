@@ -44,6 +44,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -352,6 +353,7 @@ fun EpgGrid(
                                 programs = rowPrograms,
                                 clockTickMillis = clockTickMillis,
                                 windowStartMillis = windowStartMillis,
+                                windowEndMillis = windowEndMillis,
                                 totalWidth = halfHourWidth * slots.size,
                                 pxPerMin = pxPerMin,
                                 stripe = idx % 2 == 1,
@@ -381,6 +383,7 @@ private fun ProgramsRow(
     programs: List<IptvProgram>,
     clockTickMillis: Long,
     windowStartMillis: Long,
+    windowEndMillis: Long,
     totalWidth: Dp,
     pxPerMin: Int,
     stripe: Boolean,
@@ -393,6 +396,7 @@ private fun ProgramsRow(
         modifier = Modifier
             .width(totalWidth)
             .height(rowHeight)
+            .clipToBounds()
             .background(
                 when {
                     isActive -> LiveColors.FocusBg
@@ -401,21 +405,20 @@ private fun ProgramsRow(
                 }
             ),
     ) {
-        if (programs.isNotEmpty()) {
-            programs.forEach { p ->
-                val startMin = ((p.startUtcMillis - windowStartMillis) / 60_000L).toInt().coerceAtLeast(0)
-                val durationMin = ((p.endUtcMillis - p.startUtcMillis) / 60_000L).toInt().coerceAtLeast(1)
-                val offset = (startMin * pxPerMin).dp
-                val width = (durationMin * pxPerMin).dp
-                val isNow = nowMillis in p.startUtcMillis..p.endUtcMillis
-                val isPast = p.endUtcMillis < nowMillis
+        val placements = remember(programs, windowStartMillis, windowEndMillis, nowMillis) {
+            buildProgramPlacements(programs, windowStartMillis, windowEndMillis, nowMillis)
+        }
+        if (placements.isNotEmpty()) {
+            placements.forEach { placement ->
+                val offset = (placement.startMin * pxPerMin).dp
+                val width = (placement.durationMin * pxPerMin).dp
                 ProgramCell(
-                    program = p,
+                    program = placement.program,
                     clockTickMillis = clockTickMillis,
                     width = width,
-                    isNow = isNow,
-                    isPast = isPast,
-                    isFocusTarget = isNow,
+                    isNow = placement.isNow,
+                    isPast = placement.isPast,
+                    isFocusTarget = placement.isNow,
                     onClick = onClick,
                     modifier = Modifier.offset(x = offset),
                 )
@@ -494,7 +497,41 @@ private fun programsInWindow(
     add(item.next)
     add(item.later)
     item.upcoming.forEach(::add)
-    // De-dup by start time
-    return buf.distinctBy { it.startUtcMillis }
+    return buf.distinctBy { Triple(it.startUtcMillis, it.endUtcMillis, it.title) }
         .sortedBy { it.startUtcMillis }
+}
+
+private data class ProgramPlacement(
+    val program: IptvProgram,
+    val startMin: Int,
+    val durationMin: Int,
+    val isNow: Boolean,
+    val isPast: Boolean
+)
+
+private fun buildProgramPlacements(
+    programs: List<IptvProgram>,
+    windowStartMillis: Long,
+    windowEndMillis: Long,
+    nowMillis: Long
+): List<ProgramPlacement> {
+    if (programs.isEmpty()) return emptyList()
+
+    val placements = mutableListOf<ProgramPlacement>()
+    var cursor = windowStartMillis
+    programs.forEach { program ->
+        val clampedStart = maxOf(program.startUtcMillis, windowStartMillis, cursor)
+        val clampedEnd = minOf(program.endUtcMillis, windowEndMillis)
+        if (clampedEnd <= clampedStart) return@forEach
+
+        placements += ProgramPlacement(
+            program = program,
+            startMin = ((clampedStart - windowStartMillis) / 60_000L).toInt().coerceAtLeast(0),
+            durationMin = ((clampedEnd - clampedStart) / 60_000L).toInt().coerceAtLeast(1),
+            isNow = nowMillis in clampedStart until clampedEnd,
+            isPast = clampedEnd <= nowMillis
+        )
+        cursor = clampedEnd
+    }
+    return placements
 }
