@@ -51,6 +51,9 @@ fun setDeviceModeOverrideCache(context: Context, value: String?) {
 }
 
 /** Values: "auto" (default), "tv", "tablet", "phone" */
+
+/** Key for device-wide quality regex filters (applies to all profiles on this device) */
+val QUALITY_FILTERS_KEY = stringPreferencesKey("quality_filters")
 fun detectDeviceType(context: Context): DeviceType {
     // Check for user override first via synchronous SharedPreferences mirror.
     // DataStore.first() on the main thread was adding ~50–200 ms of IO stall

@@ -321,6 +321,23 @@ data class AddonStreamResult(
     val addonId: String,
     val addonName: String,
     val error: Exception? = null
+
+/**
+ * Quality filter entry - device-scoped regex patterns to exclude quality tiers.
+ * These filters apply to ALL profiles on this device (e.g., 1080p TV always excludes 4K)
+ * regardless of which profile is logged in. This ensures device capabilities limit quality,
+ * not user profiles.
+ * 
+ * Example: 1080p TV with regex "4K|2160p" excludes 4K streams for all users
+ */
+@Immutable
+data class QualityFilterConfig(
+    val id: String = "", // UUID for unique identification
+    val deviceName: String = "", // Display name (e.g., "Living Room TV", "Bedroom Fire TV")
+    val regexPattern: String = "", // Regex pattern to EXCLUDE matching qualities (e.g., "4K|2160p")
+    val enabled: Boolean = true, // Enable/disable filter without deleting
+    val createdAt: Long = System.currentTimeMillis()
+) : Serializable
 ) : Serializable
 
 @Immutable

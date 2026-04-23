@@ -2654,6 +2654,30 @@ class StreamRepository @Inject constructor(
     }
 }
 
+    /**
+     * Filter streams based on active quality regex filters.
+     * Enabled filters exclude matching quality patterns from the stream list.
+     */
+    fun filterStreamsByQualityRegex(
+        streams: List<StreamSource>,
+        qualityFilters: List<com.arflix.tv.data.model.QualityFilterConfig>
+    ): List<StreamSource> {
+        val enabledFilters = qualityFilters.filter { it.enabled && it.regexPattern.isNotBlank() }
+        if (enabledFilters.isEmpty()) return streams
+
+        return streams.filter { stream ->
+            // Check if this stream matches any exclusion filter regex
+            enabledFilters.none { filter ->
+                try {
+                    Regex(filter.regexPattern, RegexOption.IGNORE_CASE).containsMatchIn(stream.quality)
+                } catch (e: Exception) {
+                    // If regex is invalid, don't filter (log might be helpful)
+                    false
+                }
+            }
+        }
+    }
+
 /**
  * Addon configuration
  */
