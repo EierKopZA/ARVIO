@@ -3,6 +3,8 @@ package com.arflix.tv.data.repository
 import android.content.Context
 import android.util.Log
 import com.arflix.tv.data.model.Addon
+import com.arflix.tv.data.model.ProxyHeaders
+import com.arflix.tv.data.model.StreamBehaviorHints
 import com.arflix.tv.data.model.StreamSource
 import com.lagradost.cloudstream3.AnimeLoadResponse
 import com.lagradost.cloudstream3.LoadResponse
@@ -323,6 +325,20 @@ private fun ExtractorLink.toStreamSource(addon: Addon): StreamSource = StreamSou
     url = url,
     infoHash = null,
     fileIdx = null,
+    behaviorHints = getAllHeaders()
+        .mapNotNull { (key, value) ->
+            val sanitizedKey = key.trim()
+            val sanitizedValue = value.trim()
+            if (sanitizedKey.isBlank() || sanitizedValue.isBlank()) null
+            else sanitizedKey to sanitizedValue
+        }
+        .toMap()
+        .takeIf { it.isNotEmpty() }
+        ?.let { headers ->
+            StreamBehaviorHints(
+                proxyHeaders = ProxyHeaders(request = headers)
+            )
+        },
     subtitles = emptyList(),
     sources = emptyList()
 )
