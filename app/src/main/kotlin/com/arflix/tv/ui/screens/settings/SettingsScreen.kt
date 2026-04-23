@@ -108,6 +108,7 @@ import androidx.tv.material3.Text
 import com.arflix.tv.data.model.CatalogConfig
 import com.arflix.tv.data.model.CatalogKind
 import com.arflix.tv.data.model.CatalogSourceType
+import com.arflix.tv.data.model.QualityFilterConfig
 import com.arflix.tv.data.model.RuntimeKind
 import com.arflix.tv.data.model.CloudstreamPluginIndexEntry
 import com.arflix.tv.data.model.CloudstreamRepositoryManifest
@@ -257,6 +258,12 @@ fun SettingsScreen(
     var contentLanguagePickerIndex by remember { mutableIntStateOf(0) }
     var showUiModeWarningDialog by remember { mutableStateOf(false) }
     var nextUiMode by remember { mutableStateOf("") }
+    var showQualityFiltersModal by remember { mutableStateOf(false) }
+    var qualityFiltersModalFocusedFilterIndex by remember { mutableIntStateOf(-1) }
+    var qualityFiltersModalFocusedActionIndex by remember { mutableIntStateOf(-1) }
+    var showQualityFilterInput by remember { mutableStateOf(false) }
+    var qualityFilterDeviceName by remember { mutableStateOf("") }
+    var qualityFilterRegex by remember { mutableStateOf("") }
 
     val stremioAddons = remember(uiState.addons) {
         uiState.addons.filter { it.runtimeKind == RuntimeKind.STREMIO }
@@ -493,6 +500,8 @@ fun SettingsScreen(
         showDnsProviderPicker ||
         showContentLanguagePicker ||
         showUiModeWarningDialog ||
+        showQualityFiltersModal ||
+        showQualityFilterInput ||
         uiState.showCloudPairDialog ||
         uiState.showCloudEmailPasswordDialog ||
         uiState.showAppUpdateDialog ||
@@ -690,6 +699,7 @@ fun SettingsScreen(
                                                 14 -> viewModel.setShowBudget(!uiState.showBudget)
                                                 15 -> openDnsProviderPicker()
                                                 16 -> viewModel.cycleVolumeBoost()
+                                                17 -> showQualityFiltersModal = true
                                             }
                                         }
                                         "iptv" -> {
@@ -897,7 +907,9 @@ fun SettingsScreen(
                             onClockFormatClick = { viewModel.cycleClockFormat() },
                             onShowBudgetToggle = { viewModel.setShowBudget(it) },
                             onVolumeBoostClick = { viewModel.cycleVolumeBoost() },
-                            onSubtitleColorClick = { viewModel.cycleSubtitleColor() }
+                            onSubtitleColorClick = { viewModel.cycleSubtitleColor() },
+                            qualityFilterCount = uiState.qualityFilters.count { it.enabled },
+                            onQualityFiltersClick = { showQualityFiltersModal = true }
                         )
                         "iptv" -> IptvSettings(
                             playlists = uiState.iptvPlaylists,
@@ -1129,7 +1141,9 @@ fun SettingsScreen(
                             onShowBudgetToggle = { viewModel.setShowBudget(it) },
                             onVolumeBoostClick = { viewModel.cycleVolumeBoost() },
                             onSubtitleSizeClick = { viewModel.cycleSubtitleSize() },
-                            onSubtitleColorClick = { viewModel.cycleSubtitleColor() }
+                            onSubtitleColorClick = { viewModel.cycleSubtitleColor() },
+                            qualityFilterCount = uiState.qualityFilters.count { it.enabled },
+                            onQualityFiltersClick = { showQualityFiltersModal = true }
                         )
                         "iptv" -> IptvSettings(
                             playlists = uiState.iptvPlaylists,
@@ -1264,6 +1278,63 @@ fun SettingsScreen(
             )
         }
 
+        if (showQualityFiltersModal) {
+            QualityFiltersModal(
+                filters = uiState.qualityFilters,
+                onDismiss = {
+                    showQualityFiltersModal = false
+                    qualityFiltersModalFocusedFilterIndex = -1
+                    qualityFiltersModalFocusedActionIndex = -1
+                },
+                onAdd = {
+                    showQualityFiltersModal = false
+                    showQualityFilterInput = true
+                    qualityFiltersModalFocusedFilterIndex = -1
+                    qualityFiltersModalFocusedActionIndex = -1
+                },
+                onToggle = { viewModel.toggleQualityFilter(it) },
+                onDelete = { viewModel.deleteQualityFilter(it) },
+                focusedFilterIndex = qualityFiltersModalFocusedFilterIndex,
+                onFocusedFilterIndexChange = { qualityFiltersModalFocusedFilterIndex = it },
+                focusedActionIndex = qualityFiltersModalFocusedActionIndex,
+                onFocusedActionIndexChange = { qualityFiltersModalFocusedActionIndex = it }
+            )
+        }
+
+        if (showQualityFilterInput) {
+            InputModal(
+                title = "Add Quality Filter",
+                fields = listOf(
+                    InputField(
+                        label = "Device Name (optional)",
+                        value = qualityFilterDeviceName,
+                        onValueChange = { qualityFilterDeviceName = it }
+                    ),
+                    InputField(
+                        label = "Regex Pattern",
+                        value = qualityFilterRegex,
+                        placeholder = "Example: 4K|2160p",
+                        onValueChange = { qualityFilterRegex = it }
+                    )
+                ),
+                onConfirm = {
+                    if (qualityFilterRegex.isNotBlank() && runCatching { Regex(qualityFilterRegex) }.isSuccess) {
+                        viewModel.addQualityFilter(qualityFilterDeviceName, qualityFilterRegex)
+                        qualityFilterDeviceName = ""
+                        qualityFilterRegex = ""
+                        showQualityFilterInput = false
+                        showQualityFiltersModal = true
+                    }
+                },
+                onDismiss = {
+                    qualityFilterDeviceName = ""
+                    qualityFilterRegex = ""
+                    showQualityFilterInput = false
+                    showQualityFiltersModal = true
+                }
+            )
+        }
+
         if (showCloudstreamRepoInput) {
             InputModal(
                 title = "Add Cloudstream Repository",
@@ -1299,7 +1370,6 @@ fun SettingsScreen(
                 onDismiss = { viewModel.dismissCloudstreamPluginPicker() }
             )
         }
-
         if (showIptvInput) {
             InputModal(
                 title = if (editingIptvIndex >= 0) "Edit IPTV Playlist" else "Add IPTV Playlist",
@@ -1577,6 +1647,149 @@ private fun ModalScrim(
                 onClick = {}
             ),
             content = content
+        )
+    }
+}
+
+@Composable
+private fun QualityFiltersModal(
+    filters: List<QualityFilterConfig>,
+    onDismiss: () -> Unit,
+    onAdd: () -> Unit,
+    onToggle: (String) -> Unit,
+    onDelete: (String) -> Unit,
+    focusedFilterIndex: Int = -1,
+    onFocusedFilterIndexChange: (Int) -> Unit = {},
+    focusedActionIndex: Int = -1,
+    onFocusedActionIndexChange: (Int) -> Unit = {}
+) {
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true,
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        ModalScrim(onDismiss = onDismiss) {
+            Column(
+                modifier = Modifier
+                    .width(760.dp)
+                    .heightIn(max = 760.dp)
+                    .background(BackgroundElevated, RoundedCornerShape(16.dp))
+                    .padding(24.dp)
+            ) {
+                Text(
+                    text = "Quality Regex Filters",
+                    style = ArflixTypography.sectionTitle,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Device-local filters. Matching streams are excluded.",
+                    style = ArflixTypography.caption,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                if (filters.isEmpty()) {
+                    Text(
+                        text = "No filters configured yet.",
+                        style = ArflixTypography.body,
+                        color = TextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 460.dp)
+                    ) {
+                        itemsIndexed(filters) { index, filter ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(10.dp))
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = filter.deviceName.ifBlank { "Unnamed Device" },
+                                        style = ArflixTypography.body,
+                                        color = TextPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = filter.regexPattern,
+                                        style = ArflixTypography.caption,
+                                        color = TextSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                CatalogActionChip(
+                                    icon = if (filter.enabled) Icons.Default.Check else Icons.Default.VisibilityOff,
+                                    isFocused = focusedFilterIndex == index && focusedActionIndex == 0,
+                                    onClick = { onToggle(filter.id) }
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                CatalogActionChip(
+                                    icon = Icons.Default.Delete,
+                                    isFocused = focusedFilterIndex == index && focusedActionIndex == 1,
+                                    isDestructive = true,
+                                    onClick = { onDelete(filter.id) }
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    SettingsChip(
+                        label = "Close",
+                        enabled = true,
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f)
+                    )
+                    SettingsChip(
+                        label = "Add Filter",
+                        enabled = true,
+                        onClick = onAdd,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsChip(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (enabled) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.06f))
+            .clickable(enabled = enabled) { onClick() }
+            .padding(vertical = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            style = ArflixTypography.button,
+            color = if (enabled) TextPrimary else TextSecondary
         )
     }
 }
@@ -2554,7 +2767,9 @@ private fun GeneralSettings(
     trailerAutoPlay: Boolean = false,
     onSubtitleSizeClick: () -> Unit = {},
     onSubtitleColorClick: () -> Unit = {},
-    onTrailerAutoPlayToggle: (Boolean) -> Unit = {}
+    onTrailerAutoPlayToggle: (Boolean) -> Unit = {},
+    qualityFilterCount: Int = 0,
+    onQualityFiltersClick: () -> Unit = {}
 ) {
     Column {
         // ── Language & Subtitles ──
@@ -2774,6 +2989,16 @@ private fun GeneralSettings(
             isFocused = focusedIndex == 16,
             onClick = onVolumeBoostClick,
             modifier = Modifier.settingsFocusSlot(16)
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+        SettingsRow(
+            icon = Icons.Default.HighQuality,
+            title = "Quality Regex Filters",
+            subtitle = "Exclude quality tiers on this device",
+            value = if (qualityFilterCount == 0) "OFF" else "$qualityFilterCount ON",
+            isFocused = focusedIndex == 17,
+            onClick = onQualityFiltersClick
         )
     }
 }

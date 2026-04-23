@@ -323,3 +323,11 @@ data class AddonStreamResult(
     val error: Exception? = null
 ) : Serializable
 
+@Immutable
+data class QualityFilterConfig(
+    val id: String = "",
+    val deviceName: String = "",
+    val regexPattern: String = "",
+    val enabled: Boolean = true,
+    val createdAt: Long = System.currentTimeMillis()
+) : Serializable

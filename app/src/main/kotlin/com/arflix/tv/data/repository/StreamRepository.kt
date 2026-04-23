@@ -19,6 +19,7 @@ import com.arflix.tv.data.model.CloudstreamInstalledPlugin
 import com.arflix.tv.data.model.CloudstreamPluginIndexEntry
 import com.arflix.tv.data.model.CloudstreamRepositoryManifest
 import com.arflix.tv.data.model.MediaType
+import com.arflix.tv.data.model.QualityFilterConfig
 import com.arflix.tv.data.model.RuntimeKind
 import com.arflix.tv.data.model.ProxyHeaders as ModelProxyHeaders
 import com.arflix.tv.data.model.StreamBehaviorHints as ModelStreamBehaviorHints
@@ -26,6 +27,7 @@ import com.arflix.tv.data.model.StreamSource
 import com.arflix.tv.data.model.Subtitle
 import com.arflix.tv.util.AnimeMapper
 import com.arflix.tv.util.Constants
+import com.arflix.tv.util.settingsDataStore
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -141,6 +143,13 @@ class StreamRepository @Inject constructor(
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var addonHealthLoadedProfileId: String? = null
 
+    // Precompiled quality filters cached in memory to avoid DataStore reads and regex compilation in hot path
+    private data class PrecompiledQualityFilter(
+        val regexes: List<Regex>,
+        val isEmpty: Boolean = regexes.isEmpty()
+    )
+    @Volatile private var cachedQualityFilters = PrecompiledQualityFilter(emptyList(), isEmpty = true)
+
     // Profile-scoped preference keys - each profile has its own addons
     private fun addonsKey() = profileManager.profileStringKey("installed_addons")
     private fun addonsKeyFor(profileId: String) = profileManager.profileStringKeyFor(profileId, "installed_addons")
@@ -149,13 +158,53 @@ class StreamRepository @Inject constructor(
     private fun hiddenBuiltInAddonsKey() = profileManager.profileStringKey("hidden_builtin_addons_v1")
     private fun torrServerBaseUrlKey() = profileManager.profileStringKey("torrserver_base_url_v1")
     private fun addonHealthKeyFor(profileId: String) = profileManager.profileStringKeyFor(profileId, "addon_health_v1")
+    private val qualityFiltersKey = stringPreferencesKey("quality_filters")
     private fun cloudstreamReposKey() = profileManager.profileStringKey("cloudstream_repositories_v1")
     private fun cloudstreamPendingReposKey() = profileManager.profileStringKey("cloudstream_pending_repositories_v1")
 
     init {
         repositoryScope.launch {
             ensureAddonHealthLoaded()
+            loadQualityFiltersCache()
         }
+    }
+
+    /**
+     * Load and cache quality filters on init to avoid DataStore reads in hot path.
+     * Filters are precompiled for efficient matching during stream resolution.
+     */
+    private suspend fun loadQualityFiltersCache() {
+        runCatching {
+            val json = context.settingsDataStore.data.first()[qualityFiltersKey].orEmpty()
+            if (json.isBlank()) {
+                cachedQualityFilters = PrecompiledQualityFilter(emptyList(), isEmpty = true)
+            } else {
+                val filters = gson.fromJson<List<QualityFilterConfig>>(
+                    json,
+                    object : TypeToken<List<QualityFilterConfig>>() {}.type
+                ).orEmpty()
+                    .filter { it.enabled && it.regexPattern.isNotBlank() }
+                val regexes = filters.mapNotNull { filter ->
+                    runCatching { Regex(filter.regexPattern, RegexOption.IGNORE_CASE) }.getOrNull()
+                }
+                cachedQualityFilters = PrecompiledQualityFilter(regexes, isEmpty = regexes.isEmpty())
+            }
+        }.onFailure {
+            cachedQualityFilters = PrecompiledQualityFilter(emptyList(), isEmpty = true)
+        }
+    }
+
+    /**
+     * Update cached quality filters after settings change.
+     * Called from SettingsViewModel when filters are added/toggled/deleted.
+     * Precompiles regexes to avoid compilation cost during stream checks.
+     */
+    fun updateQualityFiltersCache(filters: List<QualityFilterConfig>) {
+        val enabledFilters = filters.filter { it.enabled && it.regexPattern.isNotBlank() }
+        val regexes = enabledFilters.mapNotNull { filter ->
+            runCatching { Regex(filter.regexPattern, RegexOption.IGNORE_CASE) }.getOrNull()
+        }
+        cachedQualityFilters = PrecompiledQualityFilter(regexes, isEmpty = regexes.isEmpty())
     }
     fun observeTorrServerBaseUrl(): Flow<String> =
         profileManager.activeProfileId.combine(context.streamDataStore.data) { _, prefs ->
@@ -1372,11 +1421,12 @@ class StreamRepository @Inject constructor(
             cloudstreamAddons = cloudstreamAddons,
             request = movieRequest
         )
+        val filteredStreams = applyQualityRegexFilters(streams)
 
         // Keep core source lookup fully addon-driven and non-blocking.
         // IPTV VOD enrichment is appended separately in ViewModels.
 
-        val result = StreamResult(streams, subtitles)
+        val result = StreamResult(filteredStreams, subtitles)
         synchronized(streamResultCache) {
             streamResultCache[cacheKey] = CachedStreamResult(result = result, createdAtMs = System.currentTimeMillis())
         }
@@ -1465,13 +1515,14 @@ class StreamRepository @Inject constructor(
                                 u.isNotBlank() && !u.startsWith("magnet:", ignoreCase = true)
                             }
                             .distinctBy { "${it.url?.trim().orEmpty()}|${it.source}" }
+                        val filtered = applyQualityRegexFilters(deduped)
                         if (completed == totalAddons) {
-                            val finalResult = StreamResult(deduped, emptyList())
+                            val finalResult = StreamResult(filtered, emptyList())
                             synchronized(streamResultCache) {
                                 streamResultCache[cacheKey] = CachedStreamResult(finalResult, System.currentTimeMillis())
                             }
                         }
-                        ProgressiveStreamResult(deduped, emptyList(), completed, totalAddons, completed == totalAddons)
+                        ProgressiveStreamResult(filtered, emptyList(), completed, totalAddons, completed == totalAddons)
                     }
                     trySend(emission)
                     if (emission.isFinal) close()
@@ -1493,13 +1544,14 @@ class StreamRepository @Inject constructor(
                                 u.isNotBlank() && !u.startsWith("magnet:", ignoreCase = true)
                             }
                             .distinctBy { "${it.url?.trim().orEmpty()}|${it.source}" }
+                        val filtered = applyQualityRegexFilters(deduped)
                         if (completed == totalAddons) {
-                            val finalResult = StreamResult(deduped, emptyList())
+                            val finalResult = StreamResult(filtered, emptyList())
                             synchronized(streamResultCache) {
                                 streamResultCache[cacheKey] = CachedStreamResult(finalResult, System.currentTimeMillis())
                             }
                         }
-                        ProgressiveStreamResult(deduped, emptyList(), completed, totalAddons, completed == totalAddons)
+                        ProgressiveStreamResult(filtered, emptyList(), completed, totalAddons, completed == totalAddons)
                     }
                     trySend(emission)
                     if (emission.isFinal) close()
@@ -1687,11 +1739,12 @@ class StreamRepository @Inject constructor(
             cloudstreamAddons = cloudstreamAddons,
             request = episodeRequest
         )
+        val filteredStreams = applyQualityRegexFilters(streams)
 
         // Keep core source lookup fully addon-driven and non-blocking.
         // IPTV VOD enrichment is appended separately in ViewModels.
 
-        val result = StreamResult(streams, subtitles)
+        val result = StreamResult(filteredStreams, subtitles)
         synchronized(streamResultCache) {
             streamResultCache[cacheKey] = CachedStreamResult(result = result, createdAtMs = System.currentTimeMillis())
         }
@@ -1799,13 +1852,14 @@ class StreamRepository @Inject constructor(
                                 u.isNotBlank() && !u.startsWith("magnet:", ignoreCase = true)
                             }
                             .distinctBy { "${it.url?.trim().orEmpty()}|${it.source}" }
+                        val filtered = applyQualityRegexFilters(deduped)
                         if (completed == totalAddons) {
-                            val finalResult = StreamResult(deduped, emptyList())
+                            val finalResult = StreamResult(filtered, emptyList())
                             synchronized(streamResultCache) {
                                 streamResultCache[cacheKey] = CachedStreamResult(finalResult, System.currentTimeMillis())
                             }
                         }
-                        ProgressiveStreamResult(deduped, emptyList(), completed, totalAddons, completed == totalAddons)
+                        ProgressiveStreamResult(filtered, emptyList(), completed, totalAddons, completed == totalAddons)
                     }
                     trySend(emission)
                     if (emission.isFinal) close()
@@ -1830,13 +1884,14 @@ class StreamRepository @Inject constructor(
                                 u.isNotBlank() && !u.startsWith("magnet:", ignoreCase = true)
                             }
                             .distinctBy { "${it.url?.trim().orEmpty()}|${it.source}" }
+                        val filtered = applyQualityRegexFilters(deduped)
                         if (completed == totalAddons) {
-                            val finalResult = StreamResult(deduped, emptyList())
+                            val finalResult = StreamResult(filtered, emptyList())
                             synchronized(streamResultCache) {
                                 streamResultCache[cacheKey] = CachedStreamResult(finalResult, System.currentTimeMillis())
                             }
                         }
-                        ProgressiveStreamResult(deduped, emptyList(), completed, totalAddons, completed == totalAddons)
+                        ProgressiveStreamResult(filtered, emptyList(), completed, totalAddons, completed == totalAddons)
                     }
                     trySend(emission)
                     if (emission.isFinal) close()
@@ -2578,6 +2633,23 @@ class StreamRepository @Inject constructor(
             "urd", "urdu" -> "ur"
             "pob" -> "pt"  // "Portuguese (BR)" used by OpenSubtitles
             else -> if (lower.length >= 2) lower.take(2) else lower
+        }
+    }
+
+    private suspend fun applyQualityRegexFilters(streams: List<StreamSource>): List<StreamSource> {
+        if (streams.isEmpty()) return streams
+        if (cachedQualityFilters.isEmpty) return streams
+
+        // Use precompiled regexes from cache (no DataStore reads, no recompilation)
+        return streams.filter { stream ->
+            val qualityText = buildString {
+                append(stream.quality)
+                if (stream.source.isNotBlank()) {
+                    append(' ')
+                    append(stream.source)
+                }
+            }
+            cachedQualityFilters.regexes.none { regex -> regex.containsMatchIn(qualityText) }
         }
     }
 }

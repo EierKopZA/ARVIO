@@ -5,6 +5,7 @@ import coil.Coil
 import com.arflix.tv.BuildConfig
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arflix.tv.data.api.TraktDeviceCode
@@ -14,6 +15,7 @@ import com.arflix.tv.data.model.CatalogKind
 import com.arflix.tv.data.model.CloudstreamPluginIndexEntry
 import com.arflix.tv.data.model.CloudstreamRepositoryManifest
 import com.arflix.tv.data.model.Profile
+import com.arflix.tv.data.model.QualityFilterConfig
 import com.arflix.tv.data.repository.AuthRepository
 import com.arflix.tv.data.repository.AuthState
 import com.arflix.tv.data.repository.CatalogRepository
@@ -150,6 +152,7 @@ data class SettingsUiState(
     // Skip profile selection
     val skipProfileSelection: Boolean = false,
     val clockFormat: String = "24h",
+    val qualityFilters: List<QualityFilterConfig> = emptyList(),
     // Toast
     val toastMessage: String? = null,
     val toastType: ToastType = ToastType.INFO
@@ -217,6 +220,7 @@ class SettingsViewModel @Inject constructor(
     private fun subtitleColorKey() = profileManager.profileStringKey("subtitle_color")
     private fun dnsProviderKey() = profileManager.profileStringKey("dns_provider")
     private fun includeSpecialsKey() = profileManager.profileBooleanKey("include_specials")
+    private val qualityFiltersKey = stringPreferencesKey("quality_filters")
     private fun includeSpecialsKeyFor(profileId: String) = profileManager.profileBooleanKeyFor(profileId, "include_specials")
     private val gson = Gson()
     private var lastObservedIptvM3u: String = ""
@@ -309,6 +313,17 @@ class SettingsViewModel @Inject constructor(
             val subtitleColor = prefs[subtitleColorKey()] ?: "White"
             val dnsProviderValue = normalizeDnsProviderValue(prefs[dnsProviderKey()])
             val includeSpecials = prefs[includeSpecialsKey()] ?: false
+            val qualityFilters = runCatching {
+                val json = prefs[qualityFiltersKey].orEmpty()
+                if (json.isBlank()) {
+                    emptyList()
+                } else {
+                    gson.fromJson<List<QualityFilterConfig>>(
+                        json,
+                        object : TypeToken<List<QualityFilterConfig>>() {}.type
+                    ).orEmpty()
+                }
+            }.getOrDefault(emptyList())
 
             // Check auth statuses
             val authState = authRepository.authState.first()
@@ -374,7 +389,8 @@ class SettingsViewModel @Inject constructor(
                 contentLanguage = contentLang,
                 deviceModeOverride = deviceModeOverride,
                 skipProfileSelection = skipProfileSelection,
-                clockFormat = clockFormat
+                clockFormat = clockFormat,
+                qualityFilters = qualityFilters
             )
         }
     }
@@ -959,6 +975,48 @@ class SettingsViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(includeSpecials = enabled)
             syncLocalStateToCloud(silent = true)
         }
+    }
+
+    fun addQualityFilter(deviceName: String, regexPattern: String) {
+        val trimmedRegex = regexPattern.trim()
+        if (trimmedRegex.isBlank()) return
+        if (runCatching { Regex(trimmedRegex) }.isFailure) return
+
+        viewModelScope.launch {
+            val next = _uiState.value.qualityFilters + QualityFilterConfig(
+                id = java.util.UUID.randomUUID().toString(),
+                deviceName = deviceName.trim(),
+                regexPattern = trimmedRegex,
+                enabled = true
+            )
+            saveQualityFilters(next)
+        }
+    }
+
+    fun toggleQualityFilter(filterId: String) {
+        viewModelScope.launch {
+            val next = _uiState.value.qualityFilters.map { filter ->
+                if (filter.id == filterId) filter.copy(enabled = !filter.enabled) else filter
+            }
+            saveQualityFilters(next)
+        }
+    }
+
+    fun deleteQualityFilter(filterId: String) {
+        viewModelScope.launch {
+            val next = _uiState.value.qualityFilters.filterNot { it.id == filterId }
+            saveQualityFilters(next)
+        }
+    }
+
+    private suspend fun saveQualityFilters(filters: List<QualityFilterConfig>) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[qualityFiltersKey] = gson.toJson(filters)
+        }
+        // Device-scoped capability filter: intentionally local and not cloud-synced.
+        _uiState.value = _uiState.value.copy(qualityFilters = filters)
+        // Update in-memory cache in StreamRepository to avoid DataStore reads in hot path
+        streamRepository.updateQualityFiltersCache(filters)
     }
     
     // ========== Addon Management ==========
