@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.onFocusChanged
@@ -137,16 +138,26 @@ fun Modifier.arvioFocusable(
             val outline = shape.createOutline(size, layoutDirection, this)
             val borderWidth = outlineWidth.toPx()
             val ringColor = outlineColor.copy(alpha = highlightAlpha)
+            val glowColor = outlineColor.copy(alpha = highlightAlpha * 0.4f)
 
             when (outline) {
                 is Outline.Rounded -> {
                     val path = Path().apply { addRoundRect(outline.roundRect) }
+                    // Draw outer glow (softer, larger stroke)
+                    drawPath(path, glowColor, style = Stroke(width = borderWidth + 2.dp.toPx()))
+                    // Draw inner bright border
                     drawPath(path, ringColor, style = Stroke(width = borderWidth))
                 }
                 is Outline.Rectangle -> {
+                    // Draw outer glow (softer, larger stroke)
+                    drawRect(color = glowColor, style = Stroke(width = borderWidth + 2.dp.toPx()))
+                    // Draw inner bright border
                     drawRect(color = ringColor, style = Stroke(width = borderWidth))
                 }
                 is Outline.Generic -> {
+                    // Draw outer glow (softer, larger stroke)
+                    drawPath(path = outline.path, color = glowColor, style = Stroke(width = borderWidth + 2.dp.toPx()))
+                    // Draw inner bright border
                     drawPath(path = outline.path, color = ringColor, style = Stroke(width = borderWidth))
                 }
             }
