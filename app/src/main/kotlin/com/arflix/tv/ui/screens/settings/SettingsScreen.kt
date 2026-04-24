@@ -284,7 +284,7 @@ fun SettingsScreen(
             "catalogs" -> uiState.catalogs.size // Add + rows
             "stremio" -> stremioAddons.size // rows + add button
             "cloudstream" -> cloudstreamPlugins.size + uiState.cloudstreamRepositories.size // plugins + repos + add button
-            "accounts" -> 2 // Cloud + Trakt + App Update
+            "accounts" -> 3 // Cloud + Trakt + Force Sync + App Update
             else -> 0
         }
     }
@@ -995,6 +995,7 @@ fun SettingsScreen(
                             onConnectTrakt = { viewModel.startTraktAuth() },
                             onCancelTrakt = { viewModel.cancelTraktAuth() },
                             onDisconnectTrakt = { viewModel.disconnectTrakt() },
+                            onForceCloudSync = { viewModel.forceCloudSyncNow() },
                             onSwitchProfile = onSwitchProfile,
                             onCheckUpdates = { viewModel.checkForAppUpdates(force = true, showNoUpdateFeedback = true) },
                             onInstallUpdate = { viewModel.installAppUpdateOrRequestPermission() }
@@ -1232,6 +1233,7 @@ fun SettingsScreen(
                             onConnectTrakt = { viewModel.startTraktAuth() },
                             onCancelTrakt = { viewModel.cancelTraktAuth() },
                             onDisconnectTrakt = { viewModel.disconnectTrakt() },
+                            onForceCloudSync = { viewModel.forceCloudSyncNow() },
                             onSwitchProfile = onSwitchProfile,
                             onCheckUpdates = { viewModel.checkForAppUpdates(force = true, showNoUpdateFeedback = true) },
                             onInstallUpdate = { viewModel.installAppUpdateOrRequestPermission() }
@@ -4317,6 +4319,7 @@ private fun AccountsSettings(
     onConnectTrakt: () -> Unit,
     onCancelTrakt: () -> Unit,
     onDisconnectTrakt: () -> Unit,
+    onForceCloudSync: () -> Unit,
     onSwitchProfile: () -> Unit,
     onCheckUpdates: () -> Unit,
     onInstallUpdate: () -> Unit
@@ -4365,6 +4368,21 @@ private fun AccountsSettings(
         Spacer(modifier = Modifier.height(16.dp))
 
         SettingsActionRow(
+            title = "Force Cloud Sync",
+            description = if (isCloudAuthenticated) {
+                "Upload local state, then restore from cloud now"
+            } else {
+                "Sign in to ARVIO Cloud to force sync"
+            },
+            actionLabel = "SYNC",
+            isFocused = focusedIndex == 2,
+            onClick = { onForceCloudSync() },
+            modifier = Modifier.settingsFocusSlot(2)
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        SettingsActionRow(
             title = "App Updates",
             description = when {
                 !isSelfUpdateSupported -> "This install is managed by the Play Store"
@@ -4381,11 +4399,11 @@ private fun AccountsSettings(
                 isAppUpdateAvailable -> "UPDATE"
                 else -> "CHECK"
             },
-            isFocused = focusedIndex == 2,
+            isFocused = focusedIndex == 3,
             onClick = {
                 if (downloadedApkPath != null) onInstallUpdate() else onCheckUpdates()
             },
-            modifier = Modifier.settingsFocusSlot(2)
+            modifier = Modifier.settingsFocusSlot(3)
         )
     }
 }
