@@ -64,6 +64,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import javax.inject.Inject
 
@@ -261,7 +262,7 @@ class SettingsViewModel @Inject constructor(
         HD_1080_ONLY(
             label = "1080p only",
             filterId = "preset_quality_1080_only",
-            regexPattern = "(?:2160|4k|uhd)|(?:360|480|576|720)p|cam|hdcam|hdts|hdtc|telesync|telecine|ts|tc|screener|scr|sd"
+            regexPattern = "(?:2160|4k|uhd|1080p?)|(?:360|480|576|720)p|cam|hdcam|hdts|hdtc|telesync|telecine|ts|tc|screener|scr|sd"
         ),
         HD_720_PLUS(
             label = "720p+",
@@ -1034,12 +1035,22 @@ class SettingsViewModel @Inject constructor(
     fun cycleQualityFilterPreset() {
         viewModelScope.launch {
             val currentPreset = detectQualityFilterPreset(_uiState.value.qualityFilters)
+            
+            // Prevent losing custom filters by cycling into a preset
+            if (currentPreset == QualityFilterPreset.CUSTOM) {
+                _uiState.value = _uiState.value.copy(
+                    toastMessage = "Custom filters detected — use manual editing to modify",
+                    toastType = ToastType.INFO
+                )
+                return@launch
+            }
+            
             val nextPreset = when (currentPreset) {
-                QualityFilterPreset.OFF,
-                QualityFilterPreset.CUSTOM -> QualityFilterPreset.HD_1080_PLUS
+                QualityFilterPreset.OFF -> QualityFilterPreset.HD_1080_PLUS
                 QualityFilterPreset.HD_1080_PLUS -> QualityFilterPreset.HD_1080_ONLY
                 QualityFilterPreset.HD_1080_ONLY -> QualityFilterPreset.HD_720_PLUS
                 QualityFilterPreset.HD_720_PLUS -> QualityFilterPreset.OFF
+                QualityFilterPreset.CUSTOM -> return@launch // Already handled above
             }
             saveQualityFilters(nextPreset.toFilters())
         }
@@ -1778,10 +1789,15 @@ class SettingsViewModel @Inject constructor(
                             // auth-state observation for restore. On slower networks/session
                             // propagation this could fail once and never retry, leaving a
                             // freshly signed-in device with empty addons/settings/CW.
-                            var restoreResult = restoreCloudStateToLocalInternal(silent = true)
+                            // Now with timeout protection and retry.
+                            var restoreResult = withTimeoutOrNull(15_000L) {
+                                restoreCloudStateToLocalInternal(silent = true)
+                            } ?: CloudRestoreResult.FAILED
                             if (restoreResult == CloudRestoreResult.FAILED) {
                                 delay(1200)
-                                restoreResult = restoreCloudStateToLocalInternal(silent = true)
+                                restoreResult = withTimeoutOrNull(15_000L) {
+                                    restoreCloudStateToLocalInternal(silent = true)
+                                } ?: CloudRestoreResult.FAILED
                             }
 
                             clearCloudAuthSession(cancelPolling = false)
@@ -1939,36 +1955,51 @@ class SettingsViewModel @Inject constructor(
                 toastType = ToastType.INFO
             )
 
-            // Push local state first, then pull remote state so this device ends
+            // Push local state first (30s timeout), then pull remote state so this device ends
             // with the server-authoritative snapshot after upload.
-            var pushResult = cloudSyncRepository.pushToCloud()
-            if (pushResult.isFailure) {
-                delay(1200)
-                pushResult = cloudSyncRepository.pushToCloud()
+            var pushResult = withTimeoutOrNull(30_000L) {
+                cloudSyncRepository.pushToCloud()
+            }
+            if (pushResult == null) {
+                _uiState.value = _uiState.value.copy(
+                    toastMessage = "Cloud sync upload timed out — try again",
+                    toastType = ToastType.ERROR
+                )
+                return@launch
             }
             if (pushResult.isFailure) {
+                delay(1200)
+                pushResult = withTimeoutOrNull(30_000L) {
+                    cloudSyncRepository.pushToCloud()
+                }
+            }
+            if (pushResult == null || pushResult.isFailure) {
                 _uiState.value = _uiState.value.copy(
-                    toastMessage = pushResult.exceptionOrNull()?.message ?: "Cloud sync failed while uploading",
+                    toastMessage = pushResult?.exceptionOrNull()?.message ?: "Cloud sync failed while uploading",
                     toastType = ToastType.ERROR
                 )
                 return@launch
             }
 
-            val restoreResult = restoreCloudStateToLocalInternal(silent = true)
+            // Pull from cloud with timeout and single retry on failure
+            var restoreResult = withTimeoutOrNull(30_000L) {
+                restoreCloudStateToLocalInternal(silent = true)
+            } ?: CloudRestoreResult.FAILED
+            
             if (restoreResult == CloudRestoreResult.FAILED) {
                 delay(1200)
+                restoreResult = withTimeoutOrNull(30_000L) {
+                    restoreCloudStateToLocalInternal(silent = true)
+                } ?: CloudRestoreResult.FAILED
             }
-            val finalRestoreResult = if (restoreResult == CloudRestoreResult.FAILED) {
-                restoreCloudStateToLocalInternal(silent = true)
-            } else restoreResult
 
             _uiState.value = _uiState.value.copy(
-                toastMessage = when (finalRestoreResult) {
+                toastMessage = when (restoreResult) {
                     CloudRestoreResult.RESTORED -> "Cloud sync complete"
                     CloudRestoreResult.NO_BACKUP -> "Cloud sync complete (no backup to restore)"
                     CloudRestoreResult.FAILED -> "Upload complete, but restore failed"
                 },
-                toastType = if (finalRestoreResult == CloudRestoreResult.FAILED) {
+                toastType = if (restoreResult == CloudRestoreResult.FAILED) {
                     ToastType.ERROR
                 } else {
                     ToastType.SUCCESS
