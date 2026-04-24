@@ -246,13 +246,18 @@ fun TvScreen(
     var centerDownAtMs by remember { mutableStateOf<Long?>(null) }
     var lastNavigationAt by remember { mutableLongStateOf(0L) }
     var restoredSessionAt by rememberSaveable { mutableLongStateOf(0L) }
-    var startupDefaultApplied by rememberSaveable { mutableStateOf(false) }
+    var startupDefaultApplied by remember { mutableStateOf(false) }
     var isFastNavigating by remember { mutableStateOf(false) }
     val rootFocusRequester = remember { FocusRequester() }
     var rootHasFocus by remember { mutableStateOf(false) }
     val focusRecoveryDelayMs = 180L
 
     LaunchedEffect(Unit) {
+        runCatching { rootFocusRequester.requestFocus() }
+    }
+    LaunchedEffect(focusZone) {
+        // Re-anchor Compose focus to the root Box on every zone change so the system focus
+        // indicator doesn't linger on the previous zone's items (e.g. category row → channel).
         runCatching { rootFocusRequester.requestFocus() }
     }
     LaunchedEffect(rootHasFocus, showGroupContextMenu) {
@@ -451,12 +456,14 @@ fun TvScreen(
     }
     LaunchedEffect(safeGroupIndex, focusZone, groups.size) {
         if (focusZone == TvFocusZone.GROUPS && groups.isNotEmpty()) {
-            smoothScrollTo(groupsListState, safeGroupIndex)
+            if (isFastNavigating) groupsListState.scrollToItem(safeGroupIndex)
+            else smoothScrollTo(groupsListState, safeGroupIndex)
         }
     }
     LaunchedEffect(safeChannelIndex, focusZone, channels.size) {
         if (focusZone == TvFocusZone.GUIDE && channels.isNotEmpty()) {
-            smoothScrollTo(channelsListState, safeChannelIndex)
+            if (isFastNavigating) channelsListState.scrollToItem(safeChannelIndex)
+            else smoothScrollTo(channelsListState, safeChannelIndex)
         }
     }
     LaunchedEffect(uiState.isConfigured, uiState.isLoading, uiState.snapshot.channels.size, groups.size) {
