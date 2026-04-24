@@ -85,11 +85,26 @@ class TvViewModel @Inject constructor(
                 ?: iptvRepository.getCachedSnapshotOrNull()
             if (cached != null) {
                 val config = iptvRepository.observeConfig().first()
+                // The observeConfigAndFavorites() coroutine may have already read fresh
+                // favorites from DataStore before this cached snapshot was loaded from disk.
+                // Prefer those in-memory favorites over whatever was baked into the cache,
+                // which can be stale if the user added/removed favorites since the last save.
+                val liveSnapshot = _uiState.value.snapshot
+                val snapshotToUse = if (liveSnapshot.favoriteChannels.isNotEmpty() || liveSnapshot.favoriteGroups.isNotEmpty()) {
+                    cached.copy(
+                        favoriteChannels = liveSnapshot.favoriteChannels,
+                        favoriteGroups = liveSnapshot.favoriteGroups,
+                        hiddenGroups = liveSnapshot.hiddenGroups,
+                        groupOrder = liveSnapshot.groupOrder
+                    )
+                } else {
+                    cached
+                }
                 setUiState(
                     _uiState.value.copy(
                         isLoading = false,
                         error = null,
-                        snapshot = cached,
+                        snapshot = snapshotToUse,
                         loadingMessage = null,
                         loadingPercent = 0
                     )
@@ -217,12 +232,16 @@ class TvViewModel @Inject constructor(
                                 ).orEmpty()
                             }
                             val currentSnapshot = _uiState.value.snapshot
+                            // Rebuild grouped from the new channels so that all playlist
+                            // groups (Norway, Sweden, Denmark …) appear immediately rather
+                            // than inheriting the stale groups from the previous snapshot.
+                            val freshGrouped = channels.groupBy { it.group.ifBlank { "Uncategorized" } }
                             _uiState.value = _uiState.value.copy(
                                 isLoading = false,
                                 error = null,
                                 snapshot = currentSnapshot.copy(
                                     channels = channels,
-                                    grouped = currentSnapshot.grouped,
+                                    grouped = freshGrouped,
                                     nowNext = if (cachedNowNext.isNotEmpty()) {
                                         currentSnapshot.nowNext.toMutableMap().apply { putAll(cachedNowNext) }
                                     } else {

@@ -508,33 +508,11 @@ class CatalogRepository @Inject constructor(
         current: List<CatalogConfig>,
         desiredDefaults: List<CatalogConfig>
     ): List<CatalogConfig> {
-        val desiredCollectionIds = desiredDefaults
-            .filter { it.kind == CatalogKind.COLLECTION_RAIL || it.kind == CatalogKind.COLLECTION }
-            .map { it.id }
-            .toSet()
-        if (desiredCollectionIds.isEmpty()) return current
-
-        val currentFirstCollectionIndex = current.indexOfFirst { it.id in desiredCollectionIds }
-        val desiredFirstCollectionIndex = desiredDefaults.indexOfFirst { it.id in desiredCollectionIds }
-        if (currentFirstCollectionIndex < 0 || desiredFirstCollectionIndex < 0) return current
-
-        val trendingAnimeIndex = current.indexOfFirst { it.id == "trending_anime" }
-        val collectionsStillTrailing = currentFirstCollectionIndex > trendingAnimeIndex + 1 &&
-            current.filter { it.id in desiredCollectionIds }.map { it.id }.toSet() == desiredCollectionIds
-        if (!collectionsStillTrailing) return current
-
-        val currentById = current.associateBy { it.id }
-        val reorderedPreinstalled = desiredDefaults.mapNotNull { desired ->
-            val existing = currentById[desired.id] ?: return@mapNotNull desired
-            if (existing.title.isNotBlank() && existing.title != desired.title) {
-                desired.copy(title = existing.title)
-            } else {
-                desired
-            }
-        }
-
-        val nonPreinstalled = current.filterNot { it.isPreinstalled }
-        return reorderedPreinstalled + nonPreinstalled
+        // This migration used to reorder preinstalled catalogs back to their default
+        // positions whenever the condition fired. The condition (collections trailing
+        // after trending_anime) fired on *every* Settings open after the user had
+        // reordered anything, resetting their custom order. Migration is now a no-op.
+        return current
     }
 
     private fun isVisibleCatalogInSettings(config: CatalogConfig): Boolean {
