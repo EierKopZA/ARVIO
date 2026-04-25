@@ -585,7 +585,8 @@ fun MainAPI.fixUrlNull(url: String?): String? {
 fun MainAPI.fixUrl(url: String): String {
     if (url.startsWith("http") ||
         // Do not fix JSON objects when passed as urls.
-        url.startsWith("{\"")
+        url.startsWith("{") || url.startsWith("[") || 
+        url.startsWith("magnet:") || url.startsWith("intent:") || url.startsWith("data:")
     ) {
         return url
     }
@@ -597,10 +598,10 @@ fun MainAPI.fixUrl(url: String): String {
     if (startsWithNoHttp) {
         return "https:$url"
     } else {
-        if (url.startsWith('/')) {
-            return mainUrl + url
+        if (url.startsWith('/') || url.startsWith('?') || url.startsWith('#')) {
+            return if (mainUrl.endsWith("/")) mainUrl.dropLast(1) + url else mainUrl + url
         }
-        return "$mainUrl/$url"
+        return if (mainUrl.endsWith("/")) mainUrl + url else "$mainUrl/$url"
     }
 }
 

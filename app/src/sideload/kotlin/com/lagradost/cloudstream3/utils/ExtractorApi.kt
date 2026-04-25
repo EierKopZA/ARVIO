@@ -652,10 +652,22 @@ suspend fun loadExtractor(
     }
 
     // this is to match mirror domains - like example.com, example.net
+    val currentDomain = try {
+        java.net.URI(currentUrl.takeIf { it.startsWith("http") } ?: "https://$currentUrl").host ?: currentUrl
+    } catch (e: Exception) {
+        currentUrl
+    }
+
     for (extractor in extractorApis) {
+        val extractorDomain = try {
+            java.net.URI(extractor.mainUrl.takeIf { it.startsWith("http") } ?: "https://${extractor.mainUrl}").host ?: extractor.mainUrl
+        } catch (e: Exception) {
+            extractor.mainUrl
+        }
+
         if (FuzzySearch.partialRatio(
-                extractor.mainUrl,
-                currentUrl
+                extractorDomain,
+                currentDomain
             ) > 80
         ) {
             extractor.getSafeUrl(currentUrl, referer, subtitleCallback, callback)
@@ -991,7 +1003,8 @@ suspend fun getPostForm(requestUrl: String, html: String): String? {
 fun ExtractorApi.fixUrl(url: String): String {
     if (url.startsWith("http") ||
         // Do not fix JSON objects when passed as urls.
-        url.startsWith("{\"")
+        url.startsWith("{") || url.startsWith("[") || 
+        url.startsWith("magnet:") || url.startsWith("intent:") || url.startsWith("data:")
     ) {
         return url
     }
@@ -1003,10 +1016,10 @@ fun ExtractorApi.fixUrl(url: String): String {
     if (startsWithNoHttp) {
         return "https:$url"
     } else {
-        if (url.startsWith('/')) {
-            return mainUrl + url
+        if (url.startsWith('/') || url.startsWith('?') || url.startsWith('#')) {
+            return if (mainUrl.endsWith("/")) mainUrl.dropLast(1) + url else mainUrl + url
         }
-        return "$mainUrl/$url"
+        return if (mainUrl.endsWith("/")) mainUrl + url else "$mainUrl/$url"
     }
 }
 

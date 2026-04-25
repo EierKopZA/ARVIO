@@ -209,7 +209,7 @@ class CloudstreamProviderRuntime @Inject constructor(
         return results.firstOrNull { it.name.trim().equals(title, ignoreCase = true) }
             ?: results.firstOrNull { it.name.trim().lowercase() == lower }
             ?: results.firstOrNull { it.name.lowercase().contains(lower) }
-            ?: results.first()
+            ?: results.firstOrNull { me.xdrop.fuzzywuzzy.FuzzySearch.partialRatio(lower, it.name.lowercase()) > 85 }
     }
 
     private fun loadResponseToDataUrl(response: LoadResponse): String? = when (response) {
