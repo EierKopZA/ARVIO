@@ -49,6 +49,7 @@ fun Modifier.arvioFocusable(
     useGradientBorder: Boolean = false,  // Arctic Fuse 2: SOLID border, not gradient
     gradientStartColor: Color = Color(0xFFFF00FF),  // Magenta (unused when solid)
     gradientEndColor: Color = Color(0xFF00D4FF),    // Cyan (unused when solid)
+    animateFocus: Boolean = true,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
     onFocusChanged: (Boolean) -> Unit = {},
@@ -68,14 +69,14 @@ fun Modifier.arvioFocusable(
 
     val scale by animateFloatAsState(
         targetValue = targetScale,
-        animationSpec = tween(durationMillis = 90, easing = tokens.easing),
+        animationSpec = tween(durationMillis = if (animateFocus) 90 else 0, easing = tokens.easing),
         label = "arvio_focus_scale",
     )
 
     // Animate alpha for smooth border fade in/out
     val highlightAlpha by animateFloatAsState(
         targetValue = if (visualFocused) 1f else 0f,
-        animationSpec = tween(durationMillis = 120, easing = tokens.easing),
+        animationSpec = tween(durationMillis = if (animateFocus) 120 else 0, easing = tokens.easing),
         label = "arvio_focus_alpha",
     )
 
@@ -187,6 +188,7 @@ fun ArvioFocusableSurface(
     useGradientBorder: Boolean = false,  // Arctic Fuse 2: SOLID border, not gradient
     gradientStartColor: Color = ArvioSkin.colors.focusGradientStart,
     gradientEndColor: Color = ArvioSkin.colors.focusGradientEnd,
+    animateFocus: Boolean = true,
     enabled: Boolean = true,
     enableSystemFocus: Boolean = true,
     isFocusedOverride: Boolean = false,
@@ -215,6 +217,7 @@ fun ArvioFocusableSurface(
                 useGradientBorder = useGradientBorder,
                 gradientStartColor = gradientStartColor,
                 gradientEndColor = gradientEndColor,
+                animateFocus = animateFocus,
                 onClick = onClick,
                 onLongClick = onLongClick,
                 onFocusChanged = {

@@ -1035,7 +1035,6 @@ class IptvRepository @Inject constructor(
                 cachedNowNext = ConcurrentHashMap(cached.nowNext)
                 cachedPlaylistAt = cached.loadedAtEpochMs
                 cachedEpgAt = cached.loadedAtEpochMs
-                reDeriveCachedNowNext(cached.channels.asSequence().map { it.id }.toSet())
             }
         }
     }
@@ -1069,7 +1068,6 @@ class IptvRepository @Inject constructor(
                     cachedNowNext = ConcurrentHashMap(cached.nowNext)
                     cachedPlaylistAt = cached.loadedAtEpochMs
                     cachedEpgAt = cached.loadedAtEpochMs
-                    reDeriveCachedNowNext(cached.channels.asSequence().map { it.id }.toSet())
                 }
 
                 val favoriteGroups = observeFavoriteGroups().first()
@@ -1077,12 +1075,10 @@ class IptvRepository @Inject constructor(
                 val grouped = cachedGroupedChannels
                 val loadedAtMillis = if (cachedPlaylistAt > 0L) cachedPlaylistAt else System.currentTimeMillis()
 
-                val nowNext = reDeriveCachedNowNext(cachedChannels.asSequence().map { it.id }.toSet()) ?: cachedNowNext
-
                 IptvSnapshot(
                     channels = cachedChannels,
                     grouped = grouped,
-                    nowNext = nowNext,
+                    nowNext = cachedNowNext,
                     favoriteGroups = favoriteGroups,
                     favoriteChannels = favoriteChannels,
                     epgWarning = null,
@@ -1116,11 +1112,10 @@ class IptvRepository @Inject constructor(
         val favoriteChannels = observeFavoriteChannels().first()
         val grouped = cachedGroupedChannels
         val loadedAtMillis = if (cachedPlaylistAt > 0L) cachedPlaylistAt else System.currentTimeMillis()
-        val nowNext = reDeriveCachedNowNext(channels.asSequence().map { it.id }.toSet()) ?: cachedNowNext
         return IptvSnapshot(
             channels = channels,
             grouped = grouped,
-            nowNext = nowNext,
+            nowNext = cachedNowNext,
             favoriteGroups = favoriteGroups,
             favoriteChannels = favoriteChannels,
             epgWarning = null,

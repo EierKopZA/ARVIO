@@ -74,6 +74,8 @@ fun MediaCard(
     // that swaps in when the card is focused, so the row stays static
     // when idle and only the hovered tile animates.
     focusImageUrl: String? = null,
+    enableFocusedImageSwap: Boolean = true,
+    animateFocus: Boolean = true,
     showProgress: Boolean = false,
     showTitle: Boolean = true,
     titleMaxLines: Int = 1,
@@ -124,7 +126,7 @@ fun MediaCard(
     } else null
     val showCollectionTitleOverlay = isCollectionTile && showTitle
     val isGenreCollectionTile = item.collectionGroup == CollectionGroupKind.GENRE
-    val rawImageUrl = if (visualFocused) {
+    val rawImageUrl = if (visualFocused && enableFocusedImageSwap) {
         explicitFocusUrl ?: collectionFocusUrl ?: baseImageUrl
     } else {
         baseImageUrl
@@ -182,6 +184,7 @@ fun MediaCard(
             focusedScale = 1.07f,
             pressedScale = 0.97f,
             focusedTransformOriginX = 0.5f,
+            animateFocus = animateFocus,
             enableSystemFocus = enableSystemFocus,
             isFocusedOverride = isFocusedOverride,
             onClick = onClick,

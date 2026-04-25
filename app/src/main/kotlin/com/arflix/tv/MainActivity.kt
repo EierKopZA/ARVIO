@@ -276,7 +276,7 @@ class MainActivity : ComponentActivity() {
             }
             ArflixApplication.instance.scheduleTraktSyncIfNeeded()
             lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                kotlinx.coroutines.delay(15_000L)
+                kotlinx.coroutines.delay(60_000L)
                 val repo = iptvRepository.get()
                 runCatching { repo.prefetchFreshStartupData() }
             }

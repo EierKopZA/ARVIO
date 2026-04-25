@@ -1190,7 +1190,7 @@ class HomeViewModel @Inject constructor(
             }
         }
         viewModelScope.launch(Dispatchers.IO) {
-            delay(if (isLowRamDevice) 4_000L else 2_500L)
+            delay(if (isLowRamDevice) 60_000L else 45_000L)
             // Warm IPTV channels + EPG in background after startup settles.
             // First load from disk cache (fast), then do targeted network EPG refresh
             // for favorite channels so home screen shows current program info.
@@ -1207,12 +1207,9 @@ class HomeViewModel @Inject constructor(
                         .toSet()
                     if (favChannelIds.isNotEmpty()) {
                         val refreshed = runCatching { iptvRepository.refreshEpgForChannels(favChannelIds) }.getOrNull()
-                        if (refreshed == null) {
-                            // refreshEpgForChannels failed (not Xtream?) — do full EPG reload
-                            runCatching { iptvRepository.loadSnapshot(forcePlaylistReload = false, forceEpgReload = true) }
+                        if (refreshed != null) {
+                            refreshFavoriteTvEpg(networkFetch = false)
                         }
-                        // Rebuild Favorite TV row with fresh EPG data
-                        refreshFavoriteTvEpg(networkFetch = false)
                     }
                 }
             } catch (e: Exception) {

@@ -513,7 +513,9 @@ fun HomeScreen(
     val backdropSize = remember(configuration, density) {
         val widthPx = with(density) { configuration.screenWidthDp.dp.roundToPx() }
         val heightPx = with(density) { configuration.screenHeightDp.dp.roundToPx() }
-        widthPx.coerceAtMost(3840).coerceAtLeast(1) to heightPx.coerceAtMost(2160).coerceAtLeast(1)
+        val maxWidth = if (isMobile) 3840 else 1280
+        val maxHeight = if (isMobile) 2160 else 720
+        widthPx.coerceAtMost(maxWidth).coerceAtLeast(1) to heightPx.coerceAtMost(maxHeight).coerceAtLeast(1)
     }
     val backdropGradient = remember {
         Brush.linearGradient(
@@ -564,6 +566,7 @@ fun HomeScreen(
     // Use rememberSaveable to persist focus position across navigation (back from details page)
     val focusState = rememberSaveable(saver = HomeFocusState.Saver) { HomeFocusState() }
     val fastScrollThresholdMs = 650L
+    val heroVideoIdleThresholdMs = 1_400L
     val startupEffectsDelayMs = if (isMobile) 0L else 900L
     var startupEffectsSettled by remember { mutableStateOf(isMobile) }
     var suppressHeroVideoPlayback by remember { mutableStateOf(false) }
@@ -596,7 +599,7 @@ fun HomeScreen(
             return@LaunchedEffect
         }
         suppressHeroVideoPlayback = true
-        delay(fastScrollThresholdMs)
+        delay(heroVideoIdleThresholdMs)
         if (focusState.lastNavEventTime == anchor && !focusState.isSidebarFocused) {
             suppressHeroVideoPlayback = false
         }
@@ -699,12 +702,13 @@ fun HomeScreen(
     // Keyed on the focused collection id so re-entering the card after
     // moving elsewhere replays it.
     var collectionVideoFinishedId by remember { mutableStateOf<Int?>(null) }
+    val heroVideoAllowed = isMobile
     val serviceHeroVideoUrl = displayHeroItem
-        ?.takeIf { isHeroCollection && collectionVideoFinishedId != it.id }
+        ?.takeIf { heroVideoAllowed && isHeroCollection && collectionVideoFinishedId != it.id }
         ?.let { viewModel.getCollectionHeroVideoUrl(it) }
     val heroVideoUrl = when {
         !isMobile && !focusState.userHasNavigated -> null
-        suppressHeroVideoPlayback -> null
+        !heroVideoAllowed -> null
         isHeroIptv -> displayHeroItem?.let { viewModel.getIptvStreamUrl(it.id) }
         serviceHeroVideoUrl != null -> serviceHeroVideoUrl
         else -> null
@@ -722,7 +726,7 @@ fun HomeScreen(
     // Service-collection video lifecycle: play once on focus, with sound,
     // then mark the card "played" so subsequent focus returns fall back to
     // the stock image. IPTV live streams bypass this (they loop naturally).
-    val heroVideoFadeDurationMs = 420
+    val heroVideoFadeDurationMs = if (isMobile) 420 else 0
     val focusedCollectionId = displayHeroItem?.id?.takeIf { isHeroCollection }
     val latestFocusedCollectionId by rememberUpdatedState(focusedCollectionId)
     val heroVideoAlpha by animateFloatAsState(
@@ -2845,17 +2849,26 @@ private fun ContentRow(
     val rowIdleLiftPx = with(density) { 8.dp.toPx() }
     val rowAlpha by animateFloatAsState(
         targetValue = if (isCurrentRow) 1f else 0.9f,
-        animationSpec = tween(durationMillis = 170, easing = LinearOutSlowInEasing),
+        animationSpec = tween(
+            durationMillis = if (isFastScrolling) 0 else 170,
+            easing = LinearOutSlowInEasing
+        ),
         label = "home_row_alpha"
     )
     val rowScale by animateFloatAsState(
         targetValue = if (isCurrentRow) 1f else 0.985f,
-        animationSpec = tween(durationMillis = 190, easing = FastOutSlowInEasing),
+        animationSpec = tween(
+            durationMillis = if (isFastScrolling) 0 else 190,
+            easing = FastOutSlowInEasing
+        ),
         label = "home_row_scale"
     )
     val rowTranslationY by animateFloatAsState(
         targetValue = if (isCurrentRow) 0f else rowIdleLiftPx,
-        animationSpec = tween(durationMillis = 190, easing = FastOutSlowInEasing),
+        animationSpec = tween(
+            durationMillis = if (isFastScrolling) 0 else 190,
+            easing = FastOutSlowInEasing
+        ),
         label = "home_row_translation"
     )
 
@@ -2908,7 +2921,7 @@ private fun ContentRow(
         val targetOutsideViewport = focusedItemIndex < currentFirstIndex || focusedItemIndex > currentLastIndex
         val jumpDistance = kotlin.math.abs(scrollTargetIndex - currentFirstIndex)
         val offsetDelta = kotlin.math.abs(extraOffset - currentFirstOffset)
-        if (jumpDistance > 4) {
+        if (jumpDistance > 4 || isFastScrolling) {
             rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
         } else if (
             scrollTargetIndex != currentFirstIndex ||
@@ -2999,6 +3012,8 @@ private fun ContentRow(
                             showProgress = false,
                             showTitle = isCollectionRow && !item.collectionHideTitle,
                             isFocusedOverride = itemIsFocused,
+                            enableFocusedImageSwap = !isFastScrolling,
+                            animateFocus = !isFastScrolling,
                             enableSystemFocus = false,
                             onFocused = { onItemFocused(item, index) },
                             onClick = { onItemClick(item) },
@@ -3025,6 +3040,8 @@ private fun ContentRow(
                         showProgress = isContinueWatching,
                         showTitle = isCollectionRow && !item.collectionHideTitle,
                         isFocusedOverride = itemIsFocused,
+                        enableFocusedImageSwap = !isFastScrolling,
+                        animateFocus = !isFastScrolling,
                         enableSystemFocus = false,
                         onFocused = { onItemFocused(item, index) },
                         onClick = { onItemClick(item) },
