@@ -104,17 +104,17 @@ private fun chooseStartupChannelId(
         ?.let { return it }
     if (explicitInitialChannelId != null && !isFullyEnriched) return null
 
+    favoriteChannelIds
+        .firstOrNull { id -> filteredChannels.any { it.id == id } }
+        ?.let { return it }
+    if (favoriteChannelIds.isNotEmpty() && !isFullyEnriched) return null
+
     if (hasOpenedBefore) {
         sessionLastChannelId
             .takeIf { id -> id.isNotBlank() && filteredChannels.any { it.id == id } }
             ?.let { return it }
 
-        favoriteChannelIds
-            .firstOrNull { id -> filteredChannels.any { it.id == id } }
-            ?.let { return it }
-
-        val hasPreferredChannel = sessionLastChannelId.isNotBlank() || favoriteChannelIds.isNotEmpty()
-        if (hasPreferredChannel && !isFullyEnriched) return null
+        if (sessionLastChannelId.isNotBlank() && !isFullyEnriched) return null
     }
 
     return filteredChannels.first().id
@@ -302,11 +302,12 @@ fun LiveTvScreen(
         }
     }
 
-    // Pick the startup channel when data arrives. First-ever opens keep the
-    // original first-channel behavior. Later opens prefer the persisted recent
-    // channel, then the first favorite, then the first filtered entry.
-    LaunchedEffect(filteredChannels, playingChannelId, initialChannelId, state.tvSession, state.snapshot.favoriteChannels, enrichedState.value.all.size, state.snapshot.channels.size) {
-        if (playingChannelId == null && filteredChannels.isNotEmpty()) {
+    // Pick the startup channel only after saved IPTV preferences/session have
+    // loaded. Favorites win over a stale recent channel, then we fall back to
+    // the persisted recent channel, then the first filtered entry.
+    LaunchedEffect(filteredChannels, playingChannelId, initialChannelId, state.tvSession, state.snapshot.favoriteChannels, enrichedState.value.all.size, state.snapshot.channels.size, state.iptvPreferencesLoaded, state.tvSessionLoaded) {
+        val startupStateReady = state.iptvPreferencesLoaded && state.tvSessionLoaded
+        if (playingChannelId == null && filteredChannels.isNotEmpty() && (initialChannelId != null || startupStateReady)) {
             playingChannelId = chooseStartupChannelId(
                 filteredChannels = filteredChannels,
                 explicitInitialChannelId = initialChannelId,

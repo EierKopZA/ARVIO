@@ -58,6 +58,7 @@ fun ProgramCell(
     isNow: Boolean,
     isPast: Boolean,
     isFocusTarget: Boolean,
+    focusable: Boolean = true,
     onClick: () -> Unit,
     onFocused: () -> Unit = {},
     rowHeight: androidx.compose.ui.unit.Dp = LiveDims.EpgRowHeight,
@@ -102,10 +103,16 @@ fun ProgramCell(
                 scaleX = scale
                 scaleY = scale
             }
-            .onFocusChanged {
-                focused = it.hasFocus
-                if (it.hasFocus) onFocused()
-            }
+            .then(
+                if (focusable) {
+                    Modifier.onFocusChanged {
+                        focused = it.hasFocus
+                        if (it.hasFocus) onFocused()
+                    }
+                } else {
+                    Modifier
+                }
+            )
             .border(
                 width = borderWidth,
                 color = borderColor,
@@ -114,13 +121,19 @@ fun ProgramCell(
             .clip(RoundedCornerShape(LiveDims.CellRadius))
             .background(bg)
             .alpha(contentAlpha)
-            .focusable()
-            .onKeyEvent { ev ->
-                if (ev.type == KeyEventType.KeyDown &&
-                    (ev.key == Key.DirectionCenter || ev.key == Key.Enter)) {
-                    onClick(); true
-                } else false
-            }
+            .then(if (focusable) Modifier.focusable() else Modifier)
+            .then(
+                if (focusable) {
+                    Modifier.onKeyEvent { ev ->
+                        if (ev.type == KeyEventType.KeyDown &&
+                            (ev.key == Key.DirectionCenter || ev.key == Key.Enter)) {
+                            onClick(); true
+                        } else false
+                    }
+                } else {
+                    Modifier
+                }
+            )
             .pointerInput(Unit) { detectTapGestures(onTap = { onClick() }) }
             .padding(horizontal = 6.dp, vertical = 4.dp),
     ) {

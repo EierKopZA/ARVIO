@@ -120,6 +120,7 @@ fun EpgGrid(
     // snapshotFlow below.
     val channelListState = rememberLazyListState()
     val programListState = rememberLazyListState()
+    var didPositionInitialSelection by remember(channels) { mutableStateOf(false) }
 
     // Two-way scroll sync without feedback loop.
     // A single leader token flips to whichever list registered a user
@@ -174,12 +175,14 @@ fun EpgGrid(
     // on both selection and channel list identity so a late-arriving list
     // still lands on the right row.
     LaunchedEffect(selectedChannelId, channels) {
+        if (didPositionInitialSelection) return@LaunchedEffect
         val id = selectedChannelId ?: return@LaunchedEffect
         val idx = channels.indexOfFirst { it.id == id }
         if (idx < 0) return@LaunchedEffect
         leader = 0 // avoid triggering the two-way sync during the jump
         programListState.scrollToItem(idx)
         channelListState.scrollToItem(idx)
+        didPositionInitialSelection = true
     }
 
     LaunchedEffect(focusSelectedChannelSignal, selectedChannelId, channels) {
@@ -329,9 +332,9 @@ fun EpgGrid(
                 Box(modifier = Modifier.fillMaxSize()) {
                     LazyColumn(
                         state = programListState,
+                        userScrollEnabled = false,
                         modifier = Modifier
                             .fillMaxSize()
-                            .arvioDpadFocusGroup()
                             .horizontalScroll(hScroll),
                     ) {
                         itemsIndexed(
@@ -425,6 +428,7 @@ private fun ProgramsRow(
                     isNow = placement.isNow,
                     isPast = placement.isPast,
                     isFocusTarget = placement.isNow,
+                    focusable = false,
                     onClick = onClick,
                     onFocused = onFocused,
                     rowHeight = rowHeight,

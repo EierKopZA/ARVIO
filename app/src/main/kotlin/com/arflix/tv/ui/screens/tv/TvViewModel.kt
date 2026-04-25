@@ -34,6 +34,8 @@ data class TvUiState(
     val groups: List<String> = emptyList(),
     val channelsByGroup: Map<String, List<IptvChannel>> = emptyMap(),
     val tvSession: IptvTvSessionState = IptvTvSessionState(),
+    val iptvPreferencesLoaded: Boolean = false,
+    val tvSessionLoaded: Boolean = false,
     val favoritesOnly: Boolean = false,
     val query: String = ""
 ) {
@@ -148,7 +150,10 @@ class TvViewModel @Inject constructor(
             iptvRepository.observeTvSessionState()
                 .distinctUntilChanged()
                 .collect { session ->
-                    _uiState.value = _uiState.value.copy(tvSession = session)
+                    _uiState.value = _uiState.value.copy(
+                        tvSession = session,
+                        tvSessionLoaded = true,
+                    )
                     maybeWarmStartupGuide()
                 }
         }
@@ -176,7 +181,13 @@ class TvViewModel @Inject constructor(
                     hiddenGroups = hiddenGroups,
                     groupOrder = groupOrder
                 )
-                setUiState(_uiState.value.copy(config = config, snapshot = snapshot))
+                setUiState(
+                    _uiState.value.copy(
+                        config = config,
+                        snapshot = snapshot,
+                        iptvPreferencesLoaded = true,
+                    )
+                )
                 maybeWarmStartupGuide()
                 startFullEpgWarmup()
 
