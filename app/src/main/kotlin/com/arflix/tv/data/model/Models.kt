@@ -28,6 +28,7 @@ data class MediaItem(
     val badge: String? = null,
     val genreIds: List<Int> = emptyList(),
     val originalLanguage: String? = null,
+    val primaryNetworkLogo: String? = null,
     val isOngoing: Boolean = false,
     val totalEpisodes: Int? = null,
     val watchedEpisodes: Int? = null,
@@ -322,3 +323,19 @@ data class AddonStreamResult(
     val error: Exception? = null
 ) : Serializable
 
+/**
+ * Quality filter entry - device-scoped regex patterns to exclude quality tiers.
+ * These filters apply to ALL profiles on this device (e.g., 1080p TV always excludes 4K)
+ * regardless of which profile is logged in. This ensures device capabilities limit quality,
+ * not user profiles.
+ * 
+ * Example: 1080p TV with regex "4K|2160p" excludes 4K streams for all users
+ */
+@Immutable
+data class QualityFilterConfig(
+    val id: String = "", // UUID for unique identification
+    val deviceName: String = "", // Display name (e.g., "Living Room TV", "Bedroom Fire TV")
+    val regexPattern: String = "", // Regex pattern to EXCLUDE matching qualities (e.g., "4K|2160p")
+    val enabled: Boolean = true, // Enable/disable filter without deleting
+    val createdAt: Long = System.currentTimeMillis()
+) : Serializable
