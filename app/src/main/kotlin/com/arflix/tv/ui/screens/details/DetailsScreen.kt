@@ -2240,12 +2240,10 @@ private fun HomeStyleRowAutoScroll(
         val currentLast = rowState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: currentFirst
         val targetOutsideViewport = focusedItemIndex < currentFirst || focusedItemIndex > currentLast
         val delta = scrollTargetIndex - currentFirst
-        if (extraOffset > 0 || targetOutsideViewport || abs(delta) > 1) {
+        if (abs(delta) > 6) {
             rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
-        } else if (delta != 0) {
+        } else if (delta != 0 || targetOutsideViewport || lastScrollOffset != extraOffset) {
             rowState.animateScrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
-        } else if (lastScrollOffset != extraOffset) {
-            rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
         }
         lastScrollIndex = scrollTargetIndex
         lastScrollOffset = extraOffset

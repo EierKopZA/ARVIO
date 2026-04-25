@@ -66,17 +66,19 @@ fun Modifier.arvioFocusable(
     }
 
     val tokens = ArvioSkin.focus
+    val focusScaleDurationMs = if (animateFocus) 105 else 72
+    val focusAlphaDurationMs = if (animateFocus) 120 else 82
 
     val scale by animateFloatAsState(
         targetValue = targetScale,
-        animationSpec = tween(durationMillis = if (animateFocus) 90 else 0, easing = tokens.easing),
+        animationSpec = tween(durationMillis = focusScaleDurationMs, easing = tokens.easing),
         label = "arvio_focus_scale",
     )
 
     // Animate alpha for smooth border fade in/out
     val highlightAlpha by animateFloatAsState(
         targetValue = if (visualFocused) 1f else 0f,
-        animationSpec = tween(durationMillis = if (animateFocus) 120 else 0, easing = tokens.easing),
+        animationSpec = tween(durationMillis = focusAlphaDurationMs, easing = tokens.easing),
         label = "arvio_focus_alpha",
     )
 

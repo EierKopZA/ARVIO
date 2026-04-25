@@ -461,7 +461,7 @@ private fun RowsLayer(
         if (!initialPlacement && !recentUserNav) return@LaunchedEffect
 
         val jump = kotlin.math.abs(targetIndex - currentFirst)
-        if (!initialPlacement && jump == 1) {
+        if (!initialPlacement && jump <= 5) {
             listState.animateScrollToItem(targetIndex)
         } else {
             listState.scrollToItem(targetIndex)
@@ -530,7 +530,7 @@ private fun RowsLayer(
                             if (!recentUserNav) return@LaunchedEffect
 
                             val jumpDistance = kotlin.math.abs(scrollTargetIndex - first)
-                            if (extraOffset > 0 || jumpDistance > 1) {
+                            if (jumpDistance > 6) {
                                 rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
                             } else if (scrollTargetIndex != first || targetOutsideViewport) {
                                 rowState.animateScrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)

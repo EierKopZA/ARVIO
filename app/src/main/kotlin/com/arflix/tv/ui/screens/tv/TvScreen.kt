@@ -463,14 +463,12 @@ fun TvScreen(
     }
     LaunchedEffect(safeGroupIndex, focusZone, groups.size) {
         if (focusZone == TvFocusZone.GROUPS && groups.isNotEmpty()) {
-            if (isFastNavigating) runCatching { groupsListState.scrollToItem(safeGroupIndex) }
-            else smoothScrollTo(groupsListState, safeGroupIndex)
+            smoothScrollTo(groupsListState, safeGroupIndex)
         }
     }
     LaunchedEffect(safeChannelIndex, focusZone, channels.size) {
         if (focusZone == TvFocusZone.GUIDE && channels.isNotEmpty()) {
-            if (isFastNavigating) runCatching { channelsListState.scrollToItem(safeChannelIndex) }
-            else smoothScrollTo(channelsListState, safeChannelIndex)
+            smoothScrollTo(channelsListState, safeChannelIndex)
         }
     }
     LaunchedEffect(uiState.isConfigured, uiState.isLoading, uiState.snapshot.channels.size, groups.size) {

@@ -134,10 +134,8 @@ fun WatchlistScreen(
         if (uiState.items.isEmpty()) return@LaunchedEffect
         val safe = focusedGridIndex.coerceIn(0, uiState.items.lastIndex)
         val firstVisible = gridState.firstVisibleItemIndex
-        val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: firstVisible
-        val outsideViewport = safe < firstVisible || safe > lastVisible
         val distance = abs(firstVisible - safe)
-        if (safe == 0 || outsideViewport || distance > gridColumns) {
+        if (distance > gridColumns * 4) {
             gridState.scrollToItem(safe)
         } else {
             gridState.animateScrollToItem(safe)

@@ -2850,7 +2850,7 @@ private fun ContentRow(
     val rowAlpha by animateFloatAsState(
         targetValue = if (isCurrentRow) 1f else 0.9f,
         animationSpec = tween(
-            durationMillis = if (isFastScrolling) 0 else 170,
+            durationMillis = if (isFastScrolling) 82 else 170,
             easing = LinearOutSlowInEasing
         ),
         label = "home_row_alpha"
@@ -2858,7 +2858,7 @@ private fun ContentRow(
     val rowScale by animateFloatAsState(
         targetValue = if (isCurrentRow) 1f else 0.985f,
         animationSpec = tween(
-            durationMillis = if (isFastScrolling) 0 else 190,
+            durationMillis = if (isFastScrolling) 90 else 190,
             easing = FastOutSlowInEasing
         ),
         label = "home_row_scale"
@@ -2866,7 +2866,7 @@ private fun ContentRow(
     val rowTranslationY by animateFloatAsState(
         targetValue = if (isCurrentRow) 0f else rowIdleLiftPx,
         animationSpec = tween(
-            durationMillis = if (isFastScrolling) 0 else 190,
+            durationMillis = if (isFastScrolling) 90 else 190,
             easing = FastOutSlowInEasing
         ),
         label = "home_row_translation"
@@ -2921,7 +2921,7 @@ private fun ContentRow(
         val targetOutsideViewport = focusedItemIndex < currentFirstIndex || focusedItemIndex > currentLastIndex
         val jumpDistance = kotlin.math.abs(scrollTargetIndex - currentFirstIndex)
         val offsetDelta = kotlin.math.abs(extraOffset - currentFirstOffset)
-        if (jumpDistance > 4 || isFastScrolling) {
+        if (jumpDistance > 7) {
             rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
         } else if (
             scrollTargetIndex != currentFirstIndex ||
@@ -2932,7 +2932,7 @@ private fun ContentRow(
             rowState.animateHomeScrollDelta(
                 deltaPx = deltaPx,
                 durationMillis = when {
-                    isFastScrolling -> 100
+                    isFastScrolling -> 82
                     jumpDistance >= 3 -> 180
                     else -> 135
                 }
