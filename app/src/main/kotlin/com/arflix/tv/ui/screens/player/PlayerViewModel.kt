@@ -448,10 +448,12 @@ class PlayerViewModel @Inject constructor(
                     } else {
                         (completed.toFloat() / total.toFloat()).coerceIn(0f, 0.99f)
                     }
+                    val showLoadingStats = context.settingsDataStore.data.first()[stringPreferencesKey("show_loading_stats")] as? Boolean ?: true
                     val phaseLabel = when {
                         progressive.isFinal -> null
-                        mergedStreams.isNotEmpty() -> "Found ${mergedStreams.size} sources ($completed/$total)"
-                        else -> "Searching $completed/$total sources"
+                        mergedStreams.isNotEmpty() && showLoadingStats -> "Found ${mergedStreams.size} sources ($completed/$total)"
+                        showLoadingStats -> "Searching $completed/$total sources"
+                        else -> null
                     }
 
                     _uiState.value = _uiState.value.copy(

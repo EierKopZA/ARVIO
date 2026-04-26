@@ -155,6 +155,7 @@ data class SettingsUiState(
     val clockFormat: String = "24h",
     val qualityFilters: List<QualityFilterConfig> = emptyList(),
     val qualityFilterPresetLabel: String = "OFF",
+    val showLoadingStats: Boolean = true,
     // Toast
     val toastMessage: String? = null,
     val toastType: ToastType = ToastType.INFO
@@ -223,6 +224,7 @@ class SettingsViewModel @Inject constructor(
     private fun dnsProviderKey() = profileManager.profileStringKey("dns_provider")
     private fun includeSpecialsKey() = profileManager.profileBooleanKey("include_specials")
     private val qualityFiltersKey = stringPreferencesKey("quality_filters")
+    private val showLoadingStatsKey = profileManager.profileBooleanKey("show_loading_stats")
     private fun includeSpecialsKeyFor(profileId: String) = profileManager.profileBooleanKeyFor(profileId, "include_specials")
     private val gson = Gson()
     private var lastObservedIptvM3u: String = ""
@@ -362,6 +364,7 @@ class SettingsViewModel @Inject constructor(
                     ).orEmpty()
                 }
             }.getOrDefault(emptyList())
+            val showLoadingStats = prefs[showLoadingStatsKey] ?: true
 
             // Check auth statuses
             val authState = authRepository.authState.first()
@@ -410,7 +413,8 @@ class SettingsViewModel @Inject constructor(
                 skipProfileSelection = skipProfileSelection,
                 clockFormat = clockFormat,
                 qualityFilters = qualityFilters,
-                qualityFilterPresetLabel = detectQualityFilterPreset(qualityFilters).label
+                qualityFilterPresetLabel = detectQualityFilterPreset(qualityFilters).label,
+                showLoadingStats = showLoadingStats
             )
         }
     }
@@ -884,7 +888,13 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             context.settingsDataStore.edit { it[showBudgetKey()] = enabled }
             _uiState.value = _uiState.value.copy(showBudget = enabled)
-            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun setShowLoadingStats(enabled: Boolean) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[showLoadingStatsKey] = enabled }
+            _uiState.value = _uiState.value.copy(showLoadingStats = enabled)
         }
     }
 

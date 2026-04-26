@@ -68,6 +68,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.ChevronRight
@@ -701,14 +702,15 @@ fun SettingsScreen(
                                                 6 -> viewModel.setAutoPlaySingleSource(!uiState.autoPlaySingleSource)
                                                 7 -> viewModel.cycleAutoPlayMinQuality()
                                                 8 -> viewModel.setTrailerAutoPlay(!uiState.trailerAutoPlay)
-                                                9 -> viewModel.cycleFrameRateMatchingMode()
-                                                10 -> viewModel.toggleCardLayoutMode()
-                                                11 -> openUiModeWarningDialog()
-                                                12 -> viewModel.setSkipProfileSelection(!uiState.skipProfileSelection)
-                                                13 -> viewModel.cycleClockFormat()
-                                                14 -> viewModel.setShowBudget(!uiState.showBudget)
-                                                15 -> openDnsProviderPicker()
-                                                16 -> viewModel.cycleVolumeBoost()
+                                                9 -> viewModel.setShowLoadingStats(!uiState.showLoadingStats)
+                                                10 -> viewModel.cycleFrameRateMatchingMode()
+                                                11 -> viewModel.toggleCardLayoutMode()
+                                                12 -> openUiModeWarningDialog()
+                                                13 -> viewModel.setSkipProfileSelection(!uiState.skipProfileSelection)
+                                                14 -> viewModel.cycleClockFormat()
+                                                15 -> viewModel.setShowBudget(!uiState.showBudget)
+                                                16 -> openDnsProviderPicker()
+                                                17 -> viewModel.cycleVolumeBoost()
                                             }
                                         }
                                         "iptv" -> {
@@ -1004,6 +1006,7 @@ fun SettingsScreen(
                             skipProfileSelection = uiState.skipProfileSelection,
                             clockFormat = uiState.clockFormat,
                             showBudget = uiState.showBudget,
+                            showLoadingStats = uiState.showLoadingStats,
                             volumeBoostDb = uiState.volumeBoostDb,
                             focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
                             onSubtitleClick = openSubtitlePicker,
@@ -1021,6 +1024,7 @@ fun SettingsScreen(
                             onSkipProfileSelectionToggle = { viewModel.setSkipProfileSelection(it) },
                             onClockFormatClick = { viewModel.cycleClockFormat() },
                             onShowBudgetToggle = { viewModel.setShowBudget(it) },
+                            onShowLoadingStatsToggle = { viewModel.setShowLoadingStats(it) },
                             onVolumeBoostClick = { viewModel.cycleVolumeBoost() },
                             onSubtitleSizeClick = { viewModel.cycleSubtitleSize() },
                             onSubtitleColorClick = { viewModel.cycleSubtitleColor() }
@@ -2297,6 +2301,13 @@ private fun MobileSettingsSubPage(
                         onClick = { viewModel.setTrailerAutoPlay(!uiState.trailerAutoPlay) }
                     )
                     MobileSettingsRow(
+                        icon = Icons.Default.Info,
+                        title = "Show Loading Stats",
+                        value = if (uiState.showLoadingStats) "On" else "Off",
+                        isFocused = false,
+                        onClick = { viewModel.setShowLoadingStats(!uiState.showLoadingStats) }
+                    )
+                    MobileSettingsRow(
                         icon = Icons.Default.Settings,
                         title = "Frame Rate Matching",
                         value = uiState.frameRateMatchingMode,
@@ -2891,6 +2902,7 @@ private fun GeneralSettings(
     skipProfileSelection: Boolean = false,
     clockFormat: String = "24h",
     showBudget: Boolean = true,
+    showLoadingStats: Boolean = true,
     volumeBoostDb: Int = 0,
     focusedIndex: Int,
     onSubtitleClick: () -> Unit,
@@ -2906,6 +2918,7 @@ private fun GeneralSettings(
     onSkipProfileSelectionToggle: (Boolean) -> Unit = {},
     onClockFormatClick: () -> Unit = {},
     onShowBudgetToggle: (Boolean) -> Unit = {},
+    onShowLoadingStatsToggle: (Boolean) -> Unit = {},
     onVolumeBoostClick: () -> Unit = {},
     trailerAutoPlay: Boolean = false,
     onSubtitleSizeClick: () -> Unit = {},
@@ -3017,14 +3030,23 @@ private fun GeneralSettings(
             modifier = Modifier.settingsFocusSlot(8)
         )
         Spacer(modifier = Modifier.height(10.dp))
+        SettingsToggleRow(
+            title = "Show Loading Stats",
+            subtitle = "Display source count when loading",
+            isEnabled = showLoadingStats,
+            isFocused = focusedIndex == 9,
+            onToggle = onShowLoadingStatsToggle,
+            modifier = Modifier.settingsFocusSlot(9)
+        )
+        Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
             icon = Icons.Default.Movie,
             title = "Match Frame Rate",
             subtitle = "Off, Seamless, or Always",
             value = frameRateMatchingMode,
-            isFocused = focusedIndex == 9,
+            isFocused = focusedIndex == 10,
             onClick = onFrameRateMatchingClick,
-            modifier = Modifier.settingsFocusSlot(9)
+            modifier = Modifier.settingsFocusSlot(10)
         )
 
         // ── Interface ──
@@ -3041,9 +3063,9 @@ private fun GeneralSettings(
             title = "Card Layout",
             subtitle = "Landscape or poster cards",
             value = cardLayoutMode,
-            isFocused = focusedIndex == 10,
+            isFocused = focusedIndex == 11,
             onClick = onCardLayoutToggle,
-            modifier = Modifier.settingsFocusSlot(10)
+            modifier = Modifier.settingsFocusSlot(11)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
@@ -3056,18 +3078,18 @@ private fun GeneralSettings(
                 "phone" -> "Phone"
                 else -> "Auto"
             },
-            isFocused = focusedIndex == 11,
+            isFocused = focusedIndex == 12,
             onClick = onDeviceModeClick,
-            modifier = Modifier.settingsFocusSlot(11)
+            modifier = Modifier.settingsFocusSlot(12)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsToggleRow(
             title = "Skip Profile Selection",
             subtitle = "Auto-load last used profile",
             isEnabled = skipProfileSelection,
-            isFocused = focusedIndex == 12,
+            isFocused = focusedIndex == 13,
             onToggle = onSkipProfileSelectionToggle,
-            modifier = Modifier.settingsFocusSlot(12)
+            modifier = Modifier.settingsFocusSlot(13)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
@@ -3075,9 +3097,9 @@ private fun GeneralSettings(
             title = "Clock Format",
             subtitle = "Choose 12-hour or 24-hour time",
             value = if (clockFormat == "12h") "12-hour" else "24-hour",
-            isFocused = focusedIndex == 13,
+            isFocused = focusedIndex == 14,
             onClick = onClockFormatClick,
-            modifier = Modifier.settingsFocusSlot(13)
+            modifier = Modifier.settingsFocusSlot(14)
         )
         Spacer(modifier = Modifier.height(10.dp))
         // Home hero controls — issue #72. The movie Budget line on the hero banner
@@ -3086,9 +3108,9 @@ private fun GeneralSettings(
             title = "Show Budget on Home",
             subtitle = "Display the movie budget on the home hero banner",
             isEnabled = showBudget,
-            isFocused = focusedIndex == 14,
+            isFocused = focusedIndex == 15,
             onToggle = onShowBudgetToggle,
-            modifier = Modifier.settingsFocusSlot(14)
+            modifier = Modifier.settingsFocusSlot(15)
         )
 
         // ── Network ──
@@ -3105,9 +3127,9 @@ private fun GeneralSettings(
             title = "DNS Provider",
             subtitle = "Resolve API and stream requests",
             value = dnsProvider,
-            isFocused = focusedIndex == 15,
+            isFocused = focusedIndex == 16,
             onClick = onDnsProviderClick,
-            modifier = Modifier.settingsFocusSlot(15)
+            modifier = Modifier.settingsFocusSlot(16)
         )
 
         // ── Audio ──
@@ -3127,9 +3149,9 @@ private fun GeneralSettings(
                 0 -> "Off"
                 else -> "+${volumeBoostDb} dB"
             },
-            isFocused = focusedIndex == 16,
+            isFocused = focusedIndex == 17,
             onClick = onVolumeBoostClick,
-            modifier = Modifier.settingsFocusSlot(16)
+            modifier = Modifier.settingsFocusSlot(17)
         )
     }
 }
