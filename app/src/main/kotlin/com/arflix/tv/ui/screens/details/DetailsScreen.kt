@@ -889,6 +889,9 @@ fun DetailsScreen(
             onMarkSeasonWatched = {
                 viewModel.markSeasonWatched(contextMenuSeason)
             },
+            onMarkSeasonUnwatched = {
+                viewModel.markSeasonUnwatched(contextMenuSeason)
+            },
             onDismiss = {
                 showSeasonContextMenu = false
             }
