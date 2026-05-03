@@ -9,6 +9,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
 import com.arflix.tv.BuildConfig
 import com.arflix.tv.data.api.TmdbApi
+import com.arflix.tv.data.api.TmdbTvSeason
+import com.arflix.tv.data.model.Episode
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.model.StreamSource
 import com.arflix.tv.data.model.Subtitle
@@ -84,7 +86,13 @@ data class PlayerUiState(
     val streamProgress: Float? = null,
     // Human-readable phase label for the loading UI (e.g. "Searching 3/8
     // sources"). Null when progress isn't meaningful.
-    val streamLoadPhase: String? = null
+    val streamLoadPhase: String? = null,
+    // TV episode picker state — populated lazily when user opens the episode
+    // menu within the player, so we don't fetch seasons/episodes on every load.
+    val seasons: List<TmdbTvSeason> = emptyList(),
+    val episodes: List<Episode> = emptyList(),
+    val isLoadingEpisodes: Boolean = false,
+    val selectedSeasonForPicker: Int = 1
 )
 
 @HiltViewModel
@@ -624,6 +632,23 @@ class PlayerViewModel @Inject constructor(
     }
 
     /**
+     * Load episodes for a given season, used by the in-player episode picker.
+     * Results are stored in [PlayerUiState.episodes] so the picker can display them.
+     */
+    fun loadEpisodesForSeason(mediaId: Int, seasonNumber: Int) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoadingEpisodes = true, selectedSeasonForPicker = seasonNumber)
+            try {
+                val episodes = mediaRepository.getSeasonEpisodes(mediaId, seasonNumber)
+                _uiState.value = _uiState.value.copy(episodes = episodes, isLoadingEpisodes = false)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to load episodes for season $seasonNumber", e)
+                _uiState.value = _uiState.value.copy(isLoadingEpisodes = false)
+            }
+        }
+    }
+
+    /**
      * Fetch media metadata in background (non-blocking)
      */
     private suspend fun fetchMediaMetadata(mediaType: MediaType, mediaId: Int) {
@@ -648,6 +673,14 @@ class PlayerViewModel @Inject constructor(
                 backdropUrl = tvDetails.backdropPath?.let { "${Constants.BACKDROP_BASE_LARGE}$it" }
                 posterUrl = tvDetails.posterPath?.let { "${Constants.IMAGE_BASE}$it" }
                 currentOriginalLanguage = tvDetails.originalLanguage ?: currentOriginalLanguage
+
+                // Store seasons for the in-player episode picker.
+                // Filter out season 0 (specials) and empty seasons.
+                val filteredSeasons = tvDetails.seasons.filter { it.seasonNumber > 0 && it.episodeCount > 0 }
+                _uiState.value = _uiState.value.copy(
+                    seasons = filteredSeasons,
+                    selectedSeasonForPicker = currentSeason ?: filteredSeasons.firstOrNull()?.seasonNumber ?: 1
+                )
 
                 // Keep episode title aligned with saved progress rows for TV playback sessions.
                 val season = currentSeason

@@ -45,6 +45,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -68,6 +69,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VolumeDown
 import androidx.compose.material.icons.filled.VolumeMute
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.List
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
@@ -131,6 +133,7 @@ import coil.compose.AsyncImage
 import com.arflix.tv.ArflixApplication
 import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.data.model.MediaType
+import com.arflix.tv.data.model.Episode
 import com.arflix.tv.data.model.StreamSource
 import com.arflix.tv.data.model.Subtitle
 import com.arflix.tv.ui.components.LoadingIndicator
@@ -270,6 +273,7 @@ fun PlayerScreen(
     val playButtonFocusRequester = remember { FocusRequester() }
     val trackbarFocusRequester = remember { FocusRequester() }
     val subtitleButtonFocusRequester = remember { FocusRequester() }
+    val episodeButtonFocusRequester = remember { FocusRequester() }
     val sourceButtonFocusRequester = remember { FocusRequester() }
     val rewindButtonFocusRequester = remember { FocusRequester() }
     val forwardButtonFocusRequester = remember { FocusRequester() }
@@ -282,6 +286,7 @@ fun PlayerScreen(
     var focusedButton by remember { mutableIntStateOf(0) }
     var showSubtitleMenu by remember { mutableStateOf(false) }
     var showSourceMenu by remember { mutableStateOf(false) }
+    var showEpisodeMenu by remember { mutableStateOf(false) }
     // Post-episode "Up Next" prompt (issue #86). Shown on STATE_ENDED for TV shows:
     // a 10-second countdown lets the user Cancel or immediately Continue. On timeout we
     // advance to the next episode. Gated on the existing autoPlayNext profile setting —
@@ -1138,7 +1143,7 @@ fun PlayerScreen(
 
     // Auto-hide controls and return focus to container
     LaunchedEffect(showControls, isPlaying) {
-        if (showControls && isPlaying && !showSubtitleMenu && !showSourceMenu) {
+        if (showControls && isPlaying && !showSubtitleMenu && !showSourceMenu && !showEpisodeMenu) {
             delay(5000)
             showControls = false
             // Return focus to container so it can receive key events
@@ -1154,7 +1159,7 @@ fun PlayerScreen(
     // AnimatedVisibility(visible = hasPlaybackStarted && showControls),
     // so the play button isn't in composition until playback begins.
     LaunchedEffect(showControls, hasPlaybackStarted) {
-        if (showControls && hasPlaybackStarted && !showSubtitleMenu && !showSourceMenu && uiState.error == null) {
+        if (showControls && hasPlaybackStarted && !showSubtitleMenu && !showSourceMenu && !showEpisodeMenu && uiState.error == null) {
             delay(300)
             try {
                 playButtonFocusRequester.requestFocus()
@@ -1393,6 +1398,7 @@ fun PlayerScreen(
                 !showNextEpisodePrompt &&
                 !showSourceMenu &&
                 !showSubtitleMenu &&
+                !showEpisodeMenu &&
                 uiState.error == null
             ) {
                 if (seasonNumber != null && episodeNumber != null && uiState.autoPlayNext) {
@@ -1489,12 +1495,13 @@ fun PlayerScreen(
         if (uiState.error != null) {
             showSourceMenu = false
             showSubtitleMenu = false
+            showEpisodeMenu = false
         }
     }
 
     // Request focus on the container when not showing controls
-    LaunchedEffect(showControls, showSubtitleMenu, showSourceMenu, showNextEpisodePrompt, uiState.error) {
-        if (!showControls && !showSubtitleMenu && !showSourceMenu && !showNextEpisodePrompt && uiState.error == null) {
+    LaunchedEffect(showControls, showSubtitleMenu, showSourceMenu, showEpisodeMenu, showNextEpisodePrompt, uiState.error) {
+        if (!showControls && !showSubtitleMenu && !showSourceMenu && !showEpisodeMenu && !showNextEpisodePrompt && uiState.error == null) {
             delay(100)
             try {
                 containerFocusRequester.requestFocus()
@@ -1505,6 +1512,15 @@ fun PlayerScreen(
             try {
                 containerFocusRequester.requestFocus()
             } catch (_: Exception) {}
+        }
+    }
+
+    BackHandler(enabled = showEpisodeMenu) {
+        showEpisodeMenu = false
+        showControls = true
+        coroutineScope.launch {
+            delay(150)
+            try { episodeButtonFocusRequester.requestFocus() } catch (_: Exception) {}
         }
     }
 
@@ -1527,7 +1543,7 @@ fun PlayerScreen(
     }
 
     BackHandler(
-        enabled = !showSubtitleMenu && !showSourceMenu && !showNextEpisodePrompt && uiState.error == null
+        enabled = !showSubtitleMenu && !showSourceMenu && !showEpisodeMenu && !showNextEpisodePrompt && uiState.error == null
     ) {
         if (showControls) {
             showControls = false
@@ -1568,12 +1584,12 @@ fun PlayerScreen(
                     Modifier.pointerInput(Unit) {
                         detectTapGestures(
                             onTap = {
-                                if (uiState.error == null && !showSubtitleMenu && !showSourceMenu) {
+                                if (uiState.error == null && !showSubtitleMenu && !showSourceMenu && !showEpisodeMenu) {
                                     showControls = !showControls
                                 }
                             },
                             onDoubleTap = { offset ->
-                                if (uiState.error == null && !showSubtitleMenu && !showSourceMenu) {
+                                if (uiState.error == null && !showSubtitleMenu && !showSourceMenu && !showEpisodeMenu) {
                                     val halfWidth = size.width / 2
                                     if (offset.x < halfWidth) {
                                         // Double-tap left side: rewind 10 seconds
@@ -1662,7 +1678,7 @@ fun PlayerScreen(
                     }
 
                     if ((event.key == Key.Back || event.key == Key.Escape) &&
-                        !showSubtitleMenu && !showSourceMenu && !showNextEpisodePrompt && uiState.error == null
+                        !showSubtitleMenu && !showSourceMenu && !showEpisodeMenu && !showNextEpisodePrompt && uiState.error == null
                     ) {
                         if (showControls) {
                             showControls = false
@@ -2047,7 +2063,7 @@ fun PlayerScreen(
 
         // Netflix-style Controls Overlay
         AnimatedVisibility(
-            visible = hasPlaybackStarted && showControls && !showSubtitleMenu && !showSourceMenu,
+            visible = hasPlaybackStarted && showControls && !showSubtitleMenu && !showSourceMenu && !showEpisodeMenu,
             enter = fadeIn(androidx.compose.animation.core.tween(150)),
             exit = fadeOut(androidx.compose.animation.core.tween(200))
         ) {
@@ -2260,17 +2276,46 @@ fun PlayerScreen(
                                 }
                             },
                             onLeftKey = { if (mediaType == MediaType.TV) nextEpisodeButtonFocusRequester.requestFocus() else aspectButtonFocusRequester.requestFocus() },
-                            onRightKey = { sourceButtonFocusRequester.requestFocus() },
+                            onRightKey = { if (mediaType == MediaType.TV) episodeButtonFocusRequester.requestFocus() else sourceButtonFocusRequester.requestFocus() },
                             onDownKey = { trackbarFocusRequester.requestFocus() })
 
                         Spacer(modifier = Modifier.width(gap))
+
+                        // Episodes — only shown for TV content. Opens the in-player
+                        // episode picker so users can switch episodes without leaving
+                        // the player.
+                        if (mediaType == MediaType.TV) {
+                            PlayerIconButton(
+                                icon = Icons.Default.List,
+                                contentDescription = stringResource(R.string.episodes),
+                                focusRequester = episodeButtonFocusRequester,
+                                size = smallBtn,
+                                iconSize = smallIcon,
+                                onFocusChanged = {},
+                                onClick = {
+                                    showEpisodeMenu = true
+                                    // Kick off season/episode data load if not already loaded
+                                    if (uiState.seasons.isNotEmpty() && uiState.episodes.isEmpty()) {
+                                        viewModel.loadEpisodesForSeason(
+                                            mediaId,
+                                            uiState.selectedSeasonForPicker
+                                        )
+                                    }
+                                },
+                                onLeftKey = { subtitleButtonFocusRequester.requestFocus() },
+                                onRightKey = { sourceButtonFocusRequester.requestFocus() },
+                                onDownKey = { trackbarFocusRequester.requestFocus() }
+                            )
+
+                            Spacer(modifier = Modifier.width(gap))
+                        }
 
                         // Sources
                         PlayerIconButton(icon = Icons.Default.Folder, contentDescription = stringResource(R.string.sources),
                             focusRequester = sourceButtonFocusRequester, size = smallBtn, iconSize = smallIcon,
                             onFocusChanged = {},
                             onClick = { showSourceMenu = true; showControls = true },
-                            onLeftKey = { subtitleButtonFocusRequester.requestFocus() },
+                            onLeftKey = { if (mediaType == MediaType.TV) episodeButtonFocusRequester.requestFocus() else subtitleButtonFocusRequester.requestFocus() },
                             onRightKey = { if (isTouchDevice) playButtonFocusRequester.requestFocus() else rewindButtonFocusRequester.requestFocus() },
                             onDownKey = { trackbarFocusRequester.requestFocus() })
 
@@ -2525,6 +2570,43 @@ fun PlayerScreen(
                 }
             }
         )
+
+        // Episode picker — modal overlay for the in-player episode switcher.
+        // Appears when the user focuses an episode button in the control row.
+        AnimatedVisibility(
+            visible = showEpisodeMenu,
+            enter = fadeIn(androidx.compose.animation.core.tween(150)),
+            exit = fadeOut(androidx.compose.animation.core.tween(200))
+        ) {
+            EpisodePicker(
+                uiState = uiState,
+                currentSeason = seasonNumber,
+                currentEpisode = episodeNumber,
+                onSeasonSelected = { season ->
+                    viewModel.loadEpisodesForSeason(mediaId, season)
+                },
+                onEpisodeSelected = { epSeason, epEpisode ->
+                    showEpisodeMenu = false
+                    showControls = true
+                    val selected = uiState.selectedStream
+                    onPlayNext(
+                        epSeason,
+                        epEpisode,
+                        selected?.addonId?.takeIf { it.isNotBlank() },
+                        selected?.source?.takeIf { it.isNotBlank() },
+                        selected?.behaviorHints?.bingeGroup?.takeIf { it.isNotBlank() }
+                    )
+                },
+                onClose = {
+                    showEpisodeMenu = false
+                    showControls = true
+                    coroutineScope.launch {
+                        delay(150)
+                        try { episodeButtonFocusRequester.requestFocus() } catch (_: Exception) {}
+                    }
+                }
+            )
+        }
 
         // Post-episode "Up Next" prompt (issue #86). Shown when a TV episode ends and
         // autoPlayNext is enabled. 10-second countdown auto-advances, or the user can
@@ -3209,6 +3291,316 @@ private fun handleSubtitleMenuKey(
             true
         }
         else -> false
+    }
+}
+
+/**
+ * Modal overlay for the in-player episode switcher. Shown when the user clicks
+ * the "Episodes" button in the OSD control row. Displays season tabs at the
+ * top and a scrollable list of episodes below. Selecting an episode navigates
+ * via [onEpisodeSelected] which calls [onPlayNext] (route replacement).
+ *
+ * D-pad flow: Season tabs (horizontal) ↔ Episode list (vertical).
+ * Enter selects the focused item.
+ */
+@Composable
+private fun EpisodePicker(
+    uiState: PlayerUiState,
+    currentSeason: Int?,
+    currentEpisode: Int?,
+    onSeasonSelected: (Int) -> Unit,
+    onEpisodeSelected: (Int, Int) -> Unit,
+    onClose: () -> Unit
+) {
+    val context = LocalContext.current
+    val isTouchDevice = LocalDeviceType.current.isTouchDevice()
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.85f))
+            .then(
+                if (!isTouchDevice) {
+                    Modifier.onKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown &&
+                            (event.key == Key.Back || event.key == Key.Escape)
+                        ) {
+                            onClose()
+                            true
+                        } else false
+                    }
+                } else Modifier
+            )
+    ) {
+        Column(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth(0.88f)
+                .fillMaxHeight(0.78f)
+                .background(Color(0xFF1A1A2E), RoundedCornerShape(14.dp))
+                .padding(horizontal = 20.dp, vertical = 18.dp),
+            horizontalAlignment = Alignment.Start
+        ) {
+            // Header row with title and close button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.episodes),
+                    style = ArflixTypography.sectionTitle.copy(
+                        fontSize = if (isTouchDevice) 20.sp else 22.sp,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    color = TextPrimary
+                )
+                if (isTouchDevice) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = TextSecondary,
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clickable { onClose() }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Season tabs — horizontal focusable row (TV) / scrollable row (touch)
+            if (uiState.seasons.isNotEmpty()) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    itemsIndexed(uiState.seasons) { _, season ->
+                        val isSelected = season.seasonNumber == uiState.selectedSeasonForPicker
+                        val seasonName = season.name ?: "Season ${season.seasonNumber}"
+                        val focuses = remember { mutableStateOf(false) }
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    if (isSelected) Pink else Color.White.copy(alpha = 0.1f),
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .onFocusChanged { focuses.value = it.isFocused }
+                                .focusable()
+                                .then(
+                                    if (!isTouchDevice) {
+                                        Modifier.onKeyEvent { event ->
+                                            if (event.type == KeyEventType.KeyDown &&
+                                                (event.key == Key.Enter || event.key == Key.DirectionCenter)
+                                            ) {
+                                                if (!isSelected) onSeasonSelected(season.seasonNumber)
+                                                true
+                                            } else false
+                                        }
+                                    } else Modifier
+                                )
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    if (!isSelected) onSeasonSelected(season.seasonNumber)
+                                }
+                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = seasonName,
+                                style = ArflixTypography.body.copy(
+                                    fontSize = if (isTouchDevice) 13.sp else 14.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                ),
+                                color = if (focuses.value) Color.White
+                                    else if (isSelected) Color.White else TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Divider
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(Color.White.copy(alpha = 0.08f))
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
+            // Episode list
+            if (uiState.isLoadingEpisodes) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    LoadingIndicator()
+                }
+            } else if (uiState.episodes.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (uiState.seasons.isEmpty()) "No season data available" else "No episodes found",
+                        color = TextSecondary,
+                        style = ArflixTypography.body.copy(fontSize = 15.sp)
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    itemsIndexed(uiState.episodes) { _, episode ->
+                        val isCurrent = episode.seasonNumber == currentSeason &&
+                            episode.episodeNumber == currentEpisode
+                        EpisodePickerItem(
+                            episode = episode,
+                            isCurrentEpisode = isCurrent,
+                            isTouchDevice = isTouchDevice,
+                            onClick = {
+                                if (!isCurrent) {
+                                    onEpisodeSelected(episode.seasonNumber, episode.episodeNumber)
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EpisodePickerItem(
+    episode: Episode,
+    isCurrentEpisode: Boolean,
+    isTouchDevice: Boolean,
+    onClick: () -> Unit
+) {
+    var focused by remember { mutableStateOf(false) }
+    val bgColor = when {
+        focused -> Color.White.copy(alpha = 0.15f)
+        isCurrentEpisode -> Pink.copy(alpha = 0.2f)
+        else -> Color.White.copy(alpha = 0.04f)
+    }
+    val borderColor = when {
+        focused -> Pink.copy(alpha = 0.6f)
+        isCurrentEpisode -> Pink.copy(alpha = 0.4f)
+        else -> Color.Transparent
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(bgColor, RoundedCornerShape(10.dp))
+            .border(
+                width = if (focused || isCurrentEpisode) 1.5.dp else 0.dp,
+                color = borderColor,
+                shape = RoundedCornerShape(10.dp)
+            )
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
+            .then(
+                if (!isTouchDevice) {
+                    Modifier.onKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown &&
+                            (event.key == Key.Enter || event.key == Key.DirectionCenter)
+                        ) {
+                            onClick()
+                            true
+                        } else false
+                    }
+                } else Modifier
+            )
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            )
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Episode number
+        Box(
+            modifier = Modifier
+                .size(if (isTouchDevice) 32.dp else 36.dp)
+                .background(
+                    if (isCurrentEpisode) Pink.copy(alpha = 0.3f)
+                        else Color.White.copy(alpha = 0.08f),
+                    CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = episode.episodeNumber.toString(),
+                style = ArflixTypography.body.copy(
+                    fontSize = if (isTouchDevice) 12.sp else 13.sp,
+                    fontWeight = FontWeight.Bold
+                ),
+                color = if (isCurrentEpisode) Color.White else TextSecondary
+            )
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        // Episode info
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = episode.name.ifBlank { "Episode ${episode.episodeNumber}" },
+                style = ArflixTypography.body.copy(
+                    fontSize = if (isTouchDevice) 14.sp else 15.sp,
+                    fontWeight = if (isCurrentEpisode) FontWeight.Bold else FontWeight.Normal
+                ),
+                color = if (focused || isCurrentEpisode) Color.White else TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (episode.overview.isNotBlank()) {
+                Text(
+                    text = episode.overview,
+                    style = ArflixTypography.caption.copy(
+                        fontSize = if (isTouchDevice) 11.sp else 12.sp
+                    ),
+                    color = TextSecondary.copy(alpha = 0.7f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        // Watched badge or "Now Playing" badge
+        if (isCurrentEpisode) {
+            Text(
+                text = "NOW",
+                style = ArflixTypography.caption.copy(
+                    fontSize = if (isTouchDevice) 10.sp else 11.sp,
+                    fontWeight = FontWeight.Bold
+                ),
+                color = Pink,
+                modifier = Modifier
+                    .background(Pink.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+            )
+        } else if (episode.isWatched) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = "Watched",
+                tint = Color.White.copy(alpha = 0.4f),
+                modifier = Modifier.size(if (isTouchDevice) 18.dp else 20.dp)
+            )
+        }
     }
 }
 
