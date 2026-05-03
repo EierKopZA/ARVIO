@@ -520,19 +520,22 @@ class TraktRepository @Inject constructor(
 
     /**
      * Mark episode as unwatched - updates local cache immediately (optimistic), then syncs to backend
+     * @param syncTrakt If true (default), also syncs to Trakt. Set false when batch Trakt removal is already done.
      */
-    suspend fun markEpisodeUnwatched(showTmdbId: Int, season: Int, episode: Int) {
+    suspend fun markEpisodeUnwatched(showTmdbId: Int, season: Int, episode: Int, syncTrakt: Boolean = true) {
         ensureProfileCacheScope()
         // OPTIMISTIC UPDATE: Update all caches immediately so the UI responds instantly
         updateWatchedCache(showTmdbId, season, episode, false)
         updateShowWatchedCache(showTmdbId, season, episode, false)
         persistLocalWatchedSnapshotForCurrentProfile()
 
-        // Then sync to backend in background
-        try {
-            syncService.markEpisodeUnwatched(showTmdbId, season, episode)
-        } catch (e: Exception) {
-            // Sync failed, but local cache is already updated
+        // Then sync to backend in background (skip if batch Trakt removal already handled it)
+        if (syncTrakt) {
+            try {
+                syncService.markEpisodeUnwatched(showTmdbId, season, episode)
+            } catch (e: Exception) {
+                // Sync failed, but local cache is already updated
+            }
         }
     }
 

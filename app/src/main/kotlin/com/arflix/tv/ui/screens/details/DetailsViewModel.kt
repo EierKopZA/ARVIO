@@ -1593,11 +1593,11 @@ class DetailsViewModel @Inject constructor(
                     traktRepository.removeSeasonFromHistory(currentMediaId, season, episodeNumbers)
                 }
 
-                // 2. Concurrent Supabase unwatch writes for each episode
+                // 2. Concurrent local/Supabase unwatch writes for each episode (Trakt already handled by batch removal above)
                 episodeNumbers.map { epNum ->
                     async {
                         runCatching {
-                            traktRepository.markEpisodeUnwatched(currentMediaId, season, epNum)
+                            traktRepository.markEpisodeUnwatched(currentMediaId, season, epNum, syncTrakt = false)
                         }
                     }
                 }.forEach { it.await() }
