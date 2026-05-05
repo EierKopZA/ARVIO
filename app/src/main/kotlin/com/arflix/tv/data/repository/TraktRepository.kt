@@ -3577,7 +3577,7 @@ data class ContinueWatchingItem(
             badge = null,
             budget = budget,
             nextEpisode = nextEp,
-            totalEpisodes = totalEpisodes.takeIf { it > 0 },
+            totalEpisodes = null,
             watchedEpisodes = estimatedWatchedEpisodes,
             timeRemainingLabel = timeRemainingLabel
         )
