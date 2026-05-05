@@ -356,6 +356,55 @@ fun MediaCard(
                         )
                     }
                 }
+
+                // ── Continue Watching badges ──
+                if (showProgress) {
+                    // Top-right: time remaining or "New Episode" badge
+                    val topRightLabel = item.timeRemainingLabel
+                        ?: if (item.mediaType == MediaType.TV && item.progress == 0 && !item.isWatched) "New Episode" else null
+                    if (topRightLabel != null) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(ArvioSkin.spacing.x2)
+                                .background(
+                                    color = ArvioSkin.colors.surfaceRaised.copy(alpha = 0.85f),
+                                    shape = rememberArvioCardShape(ArvioSkin.radius.sm),
+                                )
+                                .padding(horizontal = ArvioSkin.spacing.x2, vertical = ArvioSkin.spacing.x1),
+                        ) {
+                            Text(
+                                text = topRightLabel,
+                                style = ArvioSkin.typography.badge,
+                                color = ArvioSkin.colors.textPrimary,
+                            )
+                        }
+                    }
+
+                    // Top-left: episodes remaining for TV shows
+                    if (item.mediaType == MediaType.TV && item.totalEpisodes != null && item.totalEpisodes > 0) {
+                        val epsRemaining = item.totalEpisodes - (item.watchedEpisodes ?: 0)
+                        if (epsRemaining > 0) {
+                            val epsLabel = if (epsRemaining == 1) "1 ep left" else "$epsRemaining eps left"
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(ArvioSkin.spacing.x2)
+                                    .background(
+                                        color = ArvioSkin.colors.surfaceRaised.copy(alpha = 0.85f),
+                                        shape = rememberArvioCardShape(ArvioSkin.radius.sm),
+                                    )
+                                    .padding(horizontal = ArvioSkin.spacing.x2, vertical = ArvioSkin.spacing.x1),
+                            ) {
+                                Text(
+                                    text = epsLabel,
+                                    style = ArvioSkin.typography.badge,
+                                    color = ArvioSkin.colors.textPrimary,
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 

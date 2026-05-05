@@ -1995,7 +1995,8 @@ class TraktRepository @Inject constructor(
                     year = details?.firstAirDate?.take(4) ?: item.year,
                     imdbRating = details?.voteAverage?.let { String.format("%.1f", it) } ?: "",
                     duration = details?.episodeRunTime?.firstOrNull()?.let { "${it}m" } ?: "",
-                    episodeTitle = item.episodeTitle ?: episodeInfo?.name
+                    episodeTitle = item.episodeTitle ?: episodeInfo?.name,
+                    totalEpisodes = details?.numberOfEpisodes ?: 0
                 )
             } else {
                 val details = try {
@@ -3511,7 +3512,8 @@ data class ContinueWatchingItem(
     val imdbRating: String = "",
     val duration: String = "",
     val budget: Long? = null,
-    val updatedAtMs: Long = 0L
+    val updatedAtMs: Long = 0L,
+    val totalEpisodes: Int = 0
 ) {
     fun toMediaItem(): MediaItem {
         val resumeSeconds = when {
@@ -3544,6 +3546,21 @@ data class ContinueWatchingItem(
             )
         } else null
 
+        // Compute remaining time: duration - resume position
+        val timeRemainingSeconds = when {
+            durationSeconds > 0L && resumePositionSeconds > 0L ->
+                (durationSeconds - resumePositionSeconds).coerceAtLeast(0L)
+            durationSeconds > 0L && progress in 1..94 ->
+                (durationSeconds * (100L - progress) / 100L).coerceAtLeast(0L)
+            else -> 0L
+        }
+        val timeRemainingLabel = formatTimeRemainingCompact(timeRemainingSeconds)
+
+        // Estimate watched episodes: episodes before the current one in the series
+        val estimatedWatchedEpisodes = if (mediaType == MediaType.TV && episode != null) {
+            (episode - 1).coerceAtLeast(0)
+        } else null
+
         return MediaItem(
             id = id,
             title = title,
@@ -3559,7 +3576,10 @@ data class ContinueWatchingItem(
             backdrop = backdropPath,
             badge = null,
             budget = budget,
-            nextEpisode = nextEp
+            nextEpisode = nextEp,
+            totalEpisodes = totalEpisodes.takeIf { it > 0 },
+            watchedEpisodes = estimatedWatchedEpisodes,
+            timeRemainingLabel = timeRemainingLabel
         )
     }
 }
@@ -3575,6 +3595,22 @@ private fun formatResumeClock(totalSeconds: Long): String {
         "%d:%02d".format(minutes, seconds)
     }
 }
+/**
+ * Format seconds to a compact human-readable time remaining string.
+ * e.g., "45min left", "1hr 15min left", "2hr left"
+ */
+private fun formatTimeRemainingCompact(totalSeconds: Long): String? {
+    val safe = totalSeconds.coerceAtLeast(0L)
+    if (safe < 60) return null // Less than a minute
+    val hours = safe / 3600
+    val minutes = (safe % 3600) / 60
+    return when {
+        hours > 0 && minutes > 0 -> "${hours}hr ${minutes}min left"
+        hours > 0 -> "${hours}hr left"
+        else -> "${minutes}min left"
+    }
+}
+
 private data class ContinueWatchingCandidate(
     val item: ContinueWatchingItem,
     val lastActivityAt: String
