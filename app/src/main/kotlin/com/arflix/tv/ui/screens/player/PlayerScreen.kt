@@ -3449,7 +3449,13 @@ private fun EpisodePicker(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = if (uiState.seasons.isEmpty()) "No season data available" else "No episodes found",
+                        text = stringResource(
+                            if (uiState.seasons.isEmpty()) {
+                                R.string.no_season_data_available
+                            } else {
+                                R.string.no_episodes_found
+                            }
+                        ),
                         color = TextSecondary,
                         style = ArflixTypography.body.copy(fontSize = 15.sp)
                     )
