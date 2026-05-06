@@ -1987,6 +1987,12 @@ class TraktRepository @Inject constructor(
                 // Use SHOW's backdrop and overview (like Trakt does), not episode's
                 val backdropUrl = details?.backdropPath?.let { "${Constants.BACKDROP_BASE_LARGE}$it" }
                 val posterUrl = details?.posterPath?.let { "${Constants.IMAGE_BASE}$it" }
+                val totalEpisodeCount = details?.numberOfEpisodes ?: 0
+                val watchedEpisodeCount = estimateWatchedEpisodesBeforeCurrent(
+                    seasons = details?.seasons.orEmpty(),
+                    currentSeason = item.season,
+                    currentEpisode = item.episode
+                )?.coerceAtMost(totalEpisodeCount)
 
                 item.copy(
                     overview = details?.overview ?: "",  // Show overview, not episode
@@ -1996,7 +2002,8 @@ class TraktRepository @Inject constructor(
                     imdbRating = details?.voteAverage?.let { String.format("%.1f", it) } ?: "",
                     duration = details?.episodeRunTime?.firstOrNull()?.let { "${it}m" } ?: "",
                     episodeTitle = item.episodeTitle ?: episodeInfo?.name,
-                    totalEpisodes = details?.numberOfEpisodes ?: 0
+                    totalEpisodes = totalEpisodeCount,
+                    watchedEpisodes = watchedEpisodeCount ?: item.watchedEpisodes
                 )
             } else {
                 val details = try {
@@ -3513,7 +3520,8 @@ data class ContinueWatchingItem(
     val duration: String = "",
     val budget: Long? = null,
     val updatedAtMs: Long = 0L,
-    val totalEpisodes: Int = 0
+    val totalEpisodes: Int = 0,
+    val watchedEpisodes: Int = 0
 ) {
     fun toMediaItem(): MediaItem {
         val resumeSeconds = when {
@@ -3556,10 +3564,10 @@ data class ContinueWatchingItem(
         }
         val timeRemainingLabel = formatTimeRemainingCompact(timeRemainingSeconds)
 
-        // Estimate watched episodes: episodes before the current one in the series
-        val estimatedWatchedEpisodes = if (mediaType == MediaType.TV && episode != null) {
-            (episode - 1).coerceAtLeast(0)
-        } else null
+        val totalEpisodeCount = totalEpisodes.takeIf { mediaType == MediaType.TV && it > 0 }
+        val watchedEpisodeCount = watchedEpisodes
+            .takeIf { totalEpisodeCount != null && it > 0 }
+            ?.coerceAtMost(totalEpisodeCount ?: 0)
 
         return MediaItem(
             id = id,
@@ -3577,11 +3585,24 @@ data class ContinueWatchingItem(
             badge = null,
             budget = budget,
             nextEpisode = nextEp,
-            totalEpisodes = null,
-            watchedEpisodes = estimatedWatchedEpisodes,
+            totalEpisodes = totalEpisodeCount,
+            watchedEpisodes = watchedEpisodeCount,
             timeRemainingLabel = timeRemainingLabel
         )
     }
+}
+
+private fun estimateWatchedEpisodesBeforeCurrent(
+    seasons: List<com.arflix.tv.data.api.TmdbTvSeason>,
+    currentSeason: Int?,
+    currentEpisode: Int?
+): Int? {
+    if (currentSeason == null || currentEpisode == null) return null
+    val previousSeasonCount = seasons
+        .asSequence()
+        .filter { it.seasonNumber > 0 && it.seasonNumber < currentSeason }
+        .sumOf { it.episodeCount.coerceAtLeast(0) }
+    return previousSeasonCount + (currentEpisode - 1).coerceAtLeast(0)
 }
 
 private fun formatResumeClock(totalSeconds: Long): String {
