@@ -609,6 +609,10 @@ fun DetailsScreen(
                                         }
                                         3 -> viewModel.toggleWatched(episodeIndex)
                                         4 -> viewModel.toggleWatchlist()
+                                        5 -> { // View Collection — scroll to and focus the collection row
+                                            focusedSection = FocusSection.COLLECTION
+                                            collectionIndex = 0
+                                        }
                                     }
                                 }
                                 FocusSection.EPISODES -> {
