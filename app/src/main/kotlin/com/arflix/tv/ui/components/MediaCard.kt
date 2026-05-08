@@ -386,6 +386,7 @@ fun MediaCard(
                     }
 
                     // Top-left: episodes remaining for TV shows
+                    // Poster → show just the count (e.g. "5"); Landscape → show "5 eps left"
                     if (item.mediaType == MediaType.TV && item.totalEpisodes != null && item.totalEpisodes > 0) {
                         val epsRemaining = item.totalEpisodes - (item.watchedEpisodes ?: 0)
                         if (epsRemaining > 0) {
@@ -394,7 +395,6 @@ fun MediaCard(
                             } else {
                                 epsRemaining.toString()
                             }
-
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.TopStart)
