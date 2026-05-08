@@ -2008,6 +2008,9 @@ private fun DetailsContent(
             reviews = reviews,
             similar = similar,
             similarLogoUrls = similarLogoUrls,
+            collectionItems = collectionItems,
+            collectionName = collectionName,
+            collectionIndex = collectionIndex,
             focusedSection = focusedSection,
             focusSectionForUi = focusSectionForUi,
             episodeIndex = episodeIndex,
@@ -2025,7 +2028,8 @@ private fun DetailsContent(
             onSeasonClick = onSeasonClick,
             onEpisodeClick = onEpisodeClick,
             onCastClick = onCastClick,
-            onSimilarClick = onSimilarClick
+            onSimilarClick = onSimilarClick,
+            onCollectionClick = onCollectionClick
         )
     }
 }
