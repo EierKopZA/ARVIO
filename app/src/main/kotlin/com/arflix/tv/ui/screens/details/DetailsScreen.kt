@@ -2094,7 +2094,7 @@ private fun DetailsTvRows(
         contentScrollState.scrollToItem(0, 0)
     }
 
-    LaunchedEffect(focusedSection, contentHasFocus) {
+    LaunchedEffect(focusedSection, contentHasFocus, hasCollection, hasSimilar) {
         if (!contentHasFocus) return@LaunchedEffect
 
         val targetIndex = when (focusedSection) {
