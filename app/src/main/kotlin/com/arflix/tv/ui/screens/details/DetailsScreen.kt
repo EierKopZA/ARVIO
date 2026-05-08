@@ -1735,7 +1735,7 @@ private fun DetailsContent(
         // 189dp image + ~36dp title/subtitle + 36dp focus bleed = ~261dp) plus the
         // section title (~24dp), keeping the stack low without clipping.
         val contentRowHeight = (configuration.screenHeightDp * 0.34f).dp.coerceIn(260.dp, 330.dp)
-        val contentRowBottomPadding = 0.dp
+        val contentRowBottomPadding = 12.dp
         val contentRowTopPadding = contentRowHeight + contentRowBottomPadding
         val buttonsBottomPadding = contentRowTopPadding - 4.dp
         val heroBottomPadding = buttonsBottomPadding + if (configuration.screenHeightDp < 720) 46.dp else 58.dp
@@ -4007,16 +4007,17 @@ private fun SimilarMediaCard(
     isFocused: Boolean,
     onClick: () -> Unit = {}
 ) {
-    val mediaTypeLabel = if (item.mediaType == MediaType.TV) "TV Series" else "Movie"
-    val yearSuffix = item.year.takeIf { it.isNotBlank() }?.let { " | $it" }.orEmpty()
     MediaCard(
-        item = item.copy(subtitle = "$mediaTypeLabel$yearSuffix"),
+        item = item.copy(
+            releaseDate = null,
+            year = ""
+        ),
         width = if (usePosterCards) 126.dp else 210.dp,
         isLandscape = !usePosterCards,
         logoImageUrl = logoImageUrl,
         showProgress = false,
         titleMaxLines = if (usePosterCards) 2 else 1,
-        subtitleMaxLines = 1,
+        subtitleMaxLines = 0,
         isFocusedOverride = isFocused,
         enableSystemFocus = false,
         onFocused = { },
