@@ -1539,6 +1539,35 @@ class HomeViewModel @Inject constructor(
             }
             _uiState.value = _uiState.value.copy(categories = current)
         }
+        // Keep the watch history row in sync whenever CW items change
+        publishWatchHistoryFromCachedItems()
+    }
+
+    /**
+     * Publishes a "Your Watch History" row built from the cached Continue Watching items.
+     * Injected at position 1 (immediately after Continue Watching).
+     * Each item in this row navigates to the RecommendationsScreen on click.
+     */
+    private suspend fun publishWatchHistoryFromCachedItems() {
+        val items = lastContinueWatchingItems
+        if (items.isEmpty()) return
+        val watchHistoryCategory = Category(
+            id = "watch_history",
+            title = "Your Watch History",
+            items = items
+        )
+        withContext(Dispatchers.Main) {
+            val current = _uiState.value.categories.toMutableList()
+            val whIdx = current.indexOfFirst { it.id == "watch_history" }
+            if (whIdx >= 0) {
+                current[whIdx] = watchHistoryCategory
+            } else {
+                // Insert at position 1 (right after Continue Watching which is at index 0)
+                val insertionIndex = if (current.isNotEmpty() && current.firstOrNull()?.id == "continue_watching") 1 else 0
+                current.add(insertionIndex.coerceAtMost(current.size), watchHistoryCategory)
+            }
+            _uiState.value = _uiState.value.copy(categories = current)
+        }
     }
 
     private fun loadHomeData() {
@@ -1918,6 +1947,28 @@ class HomeViewModel @Inject constructor(
                         items = merged.map { it.toMediaItem() }
                     )
                     categories.add(0, cwCat)
+                }
+                // Inject "Your Watch History" row from the same CW items
+                val watchHistoryItems = existingCW?.items
+                    ?: if (cachedContinueWatching.isNotEmpty()) {
+                        mergeContinueWatchingResumeData(cachedContinueWatching).map { it.toMediaItem() }
+                    } else {
+                        lastContinueWatchingItems
+                    }
+                if (watchHistoryItems.isNotEmpty()) {
+                    val watchHistoryCat = Category(
+                        id = "watch_history",
+                        title = "Your Watch History",
+                        items = watchHistoryItems
+                    )
+                    val whIdx = categories.indexOfFirst { it.id == "watch_history" }
+                    if (whIdx >= 0) {
+                        categories[whIdx] = watchHistoryCat
+                    } else {
+                        // Insert at position 1 (right after Continue Watching which is at index 0)
+                        val insertAt = if (categories.isNotEmpty() && categories.first().id == "continue_watching") 1 else 0
+                        categories.add(insertAt.coerceAtMost(categories.size), watchHistoryCat)
+                    }
                 }
                 // Launch the independent CW fetch
                 launchContinueWatchingFetch()

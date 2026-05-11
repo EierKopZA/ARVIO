@@ -507,6 +507,7 @@ fun HomeScreen(
     currentProfile: com.arflix.tv.data.model.Profile? = null,
     onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit = { _, _, _, _ -> },
     onNavigateToCollection: (String) -> Unit = {},
+    onNavigateToRecommendations: (MediaType, Int, String) -> Unit = { _, _, _ -> },
     onNavigateToSearch: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
     onNavigateToTv: (channelId: String?, streamUrl: String?) -> Unit = { _, _ -> },
@@ -1063,6 +1064,7 @@ fun HomeScreen(
             onItemFocusedPrefetch = {},
             onNavigateToDetails = onNavigateToDetails,
             onNavigateToCollection = onNavigateToCollection,
+            onNavigateToRecommendations = onNavigateToRecommendations,
             onNavigateToSearch = onNavigateToSearch,
             onNavigateToWatchlist = onNavigateToWatchlist,
             onNavigateToTv = onNavigateToTv,
@@ -2150,6 +2152,7 @@ private fun HomeInputLayer(
     onItemFocusedPrefetch: (MediaItem) -> Unit = {},
     onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit,
     onNavigateToCollection: (String) -> Unit,
+    onNavigateToRecommendations: (MediaType, Int, String) -> Unit = { _, _, _ -> },
     onNavigateToSearch: () -> Unit,
     onNavigateToWatchlist: () -> Unit,
     onNavigateToTv: (channelId: String?, streamUrl: String?) -> Unit,
@@ -2425,21 +2428,27 @@ private fun HomeInputLayer(
                                         val isContinue = currentCategory?.id == "continue_watching"
                                         onOpenContextMenu(item, isContinue)
                                     } else {
-                                        // Short press: navigate. Must check collection:
-                                        // BEFORE falling through to Details — D-pad SELECT
-                                        // on a service tile (Netflix, HBO, ...) was hitting
-                                        // DetailsScreen with the synthetic hash id and
-                                        // spamming TMDB 404s instead of opening the catalog.
-                                        val iptvId = item.status?.removePrefix("iptv:")
-                                            ?.takeIf { item.status?.startsWith("iptv:") == true && it.isNotBlank() }
-                                        val collectionId = item.status?.removePrefix("collection:")
-                                            ?.takeIf { item.status?.startsWith("collection:") == true && it.isNotBlank() }
-                                        if (iptvId != null) {
-                                            onNavigateToTv(iptvId, getIptvStreamUrl(item.id))
-                                        } else if (collectionId != null) {
-                                            onNavigateToCollection(collectionId)
+                                        // Short press: navigate.
+                                        val currentCategory = categories.getOrNull(focusState.currentRowIndex)
+                                        if (currentCategory?.id == "watch_history") {
+                                            // "Your Watch History" items navigate to the recommendations screen
+                                            onNavigateToRecommendations(item.mediaType, item.id, item.title)
                                         } else {
-                                            onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber)
+                                            // Must check collection BEFORE falling through to Details
+                                            // — D-pad SELECT on a service tile (Netflix, HBO, ...) was hitting
+                                            // DetailsScreen with the synthetic hash id and
+                                            // spamming TMDB 404s instead of opening the catalog.
+                                            val iptvId = item.status?.removePrefix("iptv:")
+                                                ?.takeIf { item.status?.startsWith("iptv:") == true && it.isNotBlank() }
+                                            val collectionId = item.status?.removePrefix("collection:")
+                                                ?.takeIf { item.status?.startsWith("collection:") == true && it.isNotBlank() }
+                                            if (iptvId != null) {
+                                                onNavigateToTv(iptvId, getIptvStreamUrl(item.id))
+                                            } else if (collectionId != null) {
+                                                onNavigateToCollection(collectionId)
+                                            } else {
+                                                onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber)
+                                            }
                                         }
                                     }
                                 }
@@ -2497,6 +2506,12 @@ private fun HomeInputLayer(
             onNavigateToDetails = onNavigateToDetails,
             onItemClick = { item ->
                 if (!isActionableHomeItem(item)) {
+                    return@HomeRowsLayer
+                }
+                // Check if the clicked item is in the "Your Watch History" row
+                val category = categories.getOrNull(focusState.currentRowIndex)
+                if (category?.id == "watch_history") {
+                    onNavigateToRecommendations(item.mediaType, item.id, item.title)
                     return@HomeRowsLayer
                 }
                 val iptvId = item.status?.removePrefix("iptv:")?.takeIf { item.status?.startsWith("iptv:") == true && it.isNotBlank() }
