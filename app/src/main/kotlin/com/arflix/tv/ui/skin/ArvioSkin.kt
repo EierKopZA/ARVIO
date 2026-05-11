@@ -17,9 +17,9 @@ val LocalFocusBorderColorOverride = staticCompositionLocalOf<Color?> { null }
 
 /**
  * Resolves the effective focus border colour for a component that draws its
- * own focus border (e.g. [SettingsRow], [GlowChip]) instead of using the
- * [arvioFocusable] modifier. Returns the user's chosen override when set,
- * otherwise [fallback].
+ * own focus border (for example, settings rows and glow chips) instead of
+ * using the [arvioFocusable] modifier. Returns the user's chosen override
+ * when set, otherwise the provided fallback color.
  *
  * Call this inside a `@Composable` lambda to read the CompositionLocal.
  */
