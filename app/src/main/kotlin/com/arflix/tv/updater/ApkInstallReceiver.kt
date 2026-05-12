@@ -7,6 +7,10 @@ import android.content.pm.PackageInstaller
 import android.os.Build
 import android.util.Log
 import android.widget.Toast
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import com.arflix.tv.util.settingsDataStore
+import kotlinx.coroutines.runBlocking
 
 /**
  * Handles PackageInstaller session callbacks for the in-app APK updater.
@@ -27,6 +31,11 @@ class ApkInstallReceiver : BroadcastReceiver() {
 
         when (status) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
+                persistInstallStatus(
+                    context,
+                    AppUpdateInstallPhase.PENDING_USER_ACTION,
+                    "Confirm installation in the system prompt."
+                )
                 // The system needs user confirmation — launch the confirm Activity.
                 val confirmIntent: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
@@ -58,6 +67,11 @@ class ApkInstallReceiver : BroadcastReceiver() {
 
             PackageInstaller.STATUS_SUCCESS -> {
                 Log.i(TAG, "Update installed successfully.")
+                persistInstallStatus(
+                    context,
+                    AppUpdateInstallPhase.SUCCESS,
+                    "Update installed successfully."
+                )
                 // No toast needed — the new APK is installing/replacing the running process.
             }
 
@@ -78,6 +92,11 @@ class ApkInstallReceiver : BroadcastReceiver() {
                     PackageInstaller.STATUS_FAILURE_STORAGE -> "Not enough storage to install update."
                     else -> message ?: "Update install failed."
                 }
+                persistInstallStatus(
+                    context,
+                    AppUpdateInstallPhase.FAILED,
+                    userMessage
+                )
                 showToast(context, userMessage)
             }
 
@@ -97,6 +116,8 @@ class ApkInstallReceiver : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "ApkInstallReceiver"
+        private val installPhaseKey = stringPreferencesKey("app_update_install_phase")
+        private val installMessageKey = stringPreferencesKey("app_update_install_message")
 
         /**
          * The broadcast action used for PackageInstaller session callbacks. Derived from the
@@ -105,6 +126,23 @@ class ApkInstallReceiver : BroadcastReceiver() {
          */
         fun actionFor(context: Context): String {
             return "${context.packageName}.INSTALL_COMPLETE"
+        }
+    }
+
+    private fun persistInstallStatus(
+        context: Context,
+        phase: AppUpdateInstallPhase,
+        message: String?
+    ) {
+        runBlocking {
+            context.settingsDataStore.edit { prefs ->
+                prefs[installPhaseKey] = phase.name
+                if (message.isNullOrBlank()) {
+                    prefs.remove(installMessageKey)
+                } else {
+                    prefs[installMessageKey] = message
+                }
+            }
         }
     }
 }

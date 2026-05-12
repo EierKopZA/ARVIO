@@ -1267,6 +1267,8 @@ fun SettingsScreen(
                             isAppUpdateAvailable = uiState.isAppUpdateAvailable,
                             availableAppUpdate = uiState.availableAppUpdate,
                             downloadedApkPath = uiState.downloadedApkPath,
+                            isInstallingUpdate = uiState.isInstallingAppUpdate,
+                            appUpdateInstallMessage = uiState.appUpdateInstallMessage,
                             focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
                             onConnectCloud = {
                                 if (isTouchDevice) {
@@ -1706,6 +1708,8 @@ fun SettingsScreen(
                 progress = uiState.appUpdateDownloadProgress,
                 errorMessage = uiState.appUpdateError,
                 downloadedApkPath = uiState.downloadedApkPath,
+                isInstalling = uiState.isInstallingAppUpdate,
+                installMessage = uiState.appUpdateInstallMessage,
                 isSelfUpdateSupported = uiState.isSelfUpdateSupported,
                 onDismiss = { viewModel.dismissAppUpdateDialog() },
                 onIgnore = { viewModel.ignoreAppUpdate() },
@@ -3570,13 +3574,15 @@ private fun AppUpdateModal(
     progress: Float?,
     errorMessage: String?,
     downloadedApkPath: String?,
+    isInstalling: Boolean,
+    installMessage: String?,
     isSelfUpdateSupported: Boolean,
     onDismiss: () -> Unit,
     onIgnore: () -> Unit,
     onDownload: () -> Unit,
     onInstall: () -> Unit
 ) {
-    val primaryEnabled = downloadedApkPath != null || isAppUpdateAvailable
+    val primaryEnabled = !isInstalling && (downloadedApkPath != null || isAppUpdateAvailable)
     var focusedIndex by remember(primaryEnabled) { mutableIntStateOf(if (primaryEnabled) 2 else 0) }
     val focusRequester = remember { FocusRequester() }
 
@@ -3634,6 +3640,7 @@ private fun AppUpdateModal(
 
             val subtitle = when {
                 !isSelfUpdateSupported -> "This install is managed by the Play Store."
+                isInstalling -> "Installing update…"
                 downloadedApkPath != null && update != null -> "${update.title} is ready to install."
                 isAppUpdateAvailable && update != null -> "Update available: ${update.title} (${update.tag})"
                 update != null -> "You already have the latest version installed."
@@ -3663,6 +3670,21 @@ private fun AppUpdateModal(
             }
 
             when {
+                isInstalling -> {
+                    Text("Installing update...", style = ArflixTypography.body, color = TextPrimary)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    androidx.compose.material3.LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = SuccessGreen,
+                        trackColor = Color.White.copy(alpha = 0.08f)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = installMessage ?: "The system installer may show a confirmation screen.",
+                        style = ArflixTypography.caption,
+                        color = TextSecondary
+                    )
+                }
                 isDownloading -> {
                     Text("Downloading update...", style = ArflixTypography.body, color = TextPrimary)
                     Spacer(modifier = Modifier.height(8.dp))
@@ -3699,6 +3721,7 @@ private fun AppUpdateModal(
                 UpdateActionButton("Ignore", focusedIndex == 1, onIgnore)
                 UpdateActionButton(
                     when {
+                        isInstalling -> "Installing"
                         downloadedApkPath != null -> "Install"
                         isAppUpdateAvailable -> "Download"
                         else -> "Latest"
@@ -3706,7 +3729,7 @@ private fun AppUpdateModal(
                     focusedIndex == 2,
                     if (downloadedApkPath != null) onInstall else onDownload,
                     highlighted = true,
-                    enabled = isSelfUpdateSupported && !isChecking && primaryEnabled
+                    enabled = isSelfUpdateSupported && !isChecking && !isInstalling && primaryEnabled
                 )
             }
         }
@@ -6579,6 +6602,8 @@ private fun AccountsSettings(
     isAppUpdateAvailable: Boolean,
     availableAppUpdate: com.arflix.tv.updater.AppUpdate?,
     downloadedApkPath: String?,
+    isInstallingUpdate: Boolean,
+    appUpdateInstallMessage: String?,
     focusedIndex: Int,
     onConnectCloud: () -> Unit,
     onDisconnectCloud: () -> Unit,
@@ -6655,6 +6680,7 @@ private fun AccountsSettings(
             title = stringResource(R.string.app_update),
             description = when {
                 !isSelfUpdateSupported -> "This install is managed by the Play Store"
+                isInstallingUpdate -> appUpdateInstallMessage ?: "Installing update in progress"
                 downloadedApkPath != null -> "Latest update downloaded and ready to install"
                 isCheckingForUpdate -> "Checking GitHub Releases for a newer APK"
                 isAppUpdateAvailable -> "Update available: ${availableAppUpdate?.title ?: availableAppUpdate?.tag ?: "latest release"}"
@@ -6663,6 +6689,7 @@ private fun AccountsSettings(
             },
             actionLabel = when {
                 !isSelfUpdateSupported -> "PLAY"
+                isInstallingUpdate -> "INSTALLING"
                 downloadedApkPath != null -> "INSTALL"
                 isCheckingForUpdate -> "CHECKING"
                 isAppUpdateAvailable -> "UPDATE"
@@ -6670,7 +6697,9 @@ private fun AccountsSettings(
             },
             isFocused = focusedIndex == 3,
             onClick = {
-                if (downloadedApkPath != null) onInstallUpdate() else onCheckUpdates()
+                if (!isInstallingUpdate) {
+                    if (downloadedApkPath != null) onInstallUpdate() else onCheckUpdates()
+                }
             },
             modifier = Modifier.settingsFocusSlot(3)
         )
