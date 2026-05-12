@@ -951,6 +951,7 @@ class SettingsViewModel @Inject constructor(
                 prefs[com.arflix.tv.util.SKIP_PROFILE_SELECTION_KEY] = skip
             }
             _uiState.value = _uiState.value.copy(skipProfileSelection = skip)
+            syncLocalStateToCloud(silent = true)
         }
     }
 
