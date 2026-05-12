@@ -7,6 +7,8 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
 private val releaseDateFormatter = DateTimeFormatter.ISO_LOCAL_DATE
+private val genreWordStartRegex = Regex("(^|[\\s/&-])([\\p{L}])")
+private val tvWordRegex = Regex("\\bTv\\b")
 
 fun isInCinema(item: MediaItem, now: LocalDate = LocalDate.now()): Boolean {
     if (item.mediaType != MediaType.MOVIE) return false
@@ -22,4 +24,13 @@ fun isInCinema(item: MediaItem, now: LocalDate = LocalDate.now()): Boolean {
 fun parseRatingValue(raw: String): Float {
     if (raw.isBlank()) return 0f
     return raw.trim().replace(',', '.').toFloatOrNull() ?: 0f
+}
+
+fun formatGenreName(raw: String): String {
+    val trimmed = raw.trim()
+    if (trimmed.isEmpty()) return trimmed
+    val titled = trimmed.lowercase().replace(genreWordStartRegex) { match ->
+        match.groupValues[1] + match.groupValues[2].replaceFirstChar { it.titlecase() }
+    }
+    return titled.replace(tvWordRegex, "TV")
 }
