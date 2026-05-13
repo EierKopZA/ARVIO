@@ -99,7 +99,7 @@ object ApkInstaller {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 
-    fun launchInstall(context: Context, apkFile: File) {
+    fun launchInstall(context: Context, apkFile: File): Boolean {
         // Try session-based installer first (smoother UX on Android 5+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             try {
@@ -137,7 +137,7 @@ object ApkInstaller {
 
                 session.commit(pendingIntent.intentSender)
                 session.close()
-                return
+                return true
             } catch (e: Exception) {
                 System.err.println("[ApkInstaller] Session install failed, falling back to ACTION_VIEW: ${e.message}")
             }
@@ -152,8 +152,10 @@ object ApkInstaller {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
             context.startActivity(intent)
+            return true
         } catch (e: Exception) {
             System.err.println("[ApkInstaller] Fallback ACTION_VIEW install failed: ${e.message}")
+            return false
         }
     }
 }

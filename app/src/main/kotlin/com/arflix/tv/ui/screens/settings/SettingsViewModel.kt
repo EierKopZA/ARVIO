@@ -50,6 +50,7 @@ import com.arflix.tv.ui.components.CARD_LAYOUT_MODE_LANDSCAPE
 import com.arflix.tv.ui.components.normalizeCardLayoutMode
 import com.arflix.tv.updater.ApkDownloader
 import com.arflix.tv.updater.ApkInstaller
+import com.arflix.tv.updater.AppUpdateInstallPhase
 import com.arflix.tv.updater.AppUpdate
 import com.arflix.tv.updater.AppUpdateRepository
 import com.arflix.tv.updater.UpdatePreferences
@@ -155,6 +156,8 @@ data class SettingsUiState(
     val isDownloadingAppUpdate: Boolean = false,
     val appUpdateDownloadProgress: Float? = null,
     val downloadedApkPath: String? = null,
+    val isInstallingAppUpdate: Boolean = false,
+    val appUpdateInstallMessage: String? = null,
     val showAppUpdateDialog: Boolean = false,
     val showUnknownSourcesDialog: Boolean = false,
     val appUpdateError: String? = null,
@@ -347,6 +350,7 @@ class SettingsViewModel @Inject constructor(
 
     init {
         loadSettings()
+        observeAppUpdateInstallState()
         observeProfileChanges()
         observeAddons()
         observeTorrServer()
@@ -375,6 +379,26 @@ class SettingsViewModel @Inject constructor(
                 if (ignoredNormalized == installedNormalized || !com.arflix.tv.updater.VersionUtils.isRemoteNewer(ignoredTag, installedVersion)) {
                     updatePreferences.setIgnoredTag(null)
                 }
+            }
+        }
+    }
+
+    private fun observeAppUpdateInstallState() {
+        viewModelScope.launch {
+            updatePreferences.installStatus.collect { status ->
+                val installing = status.phase == AppUpdateInstallPhase.INSTALLING ||
+                    status.phase == AppUpdateInstallPhase.PENDING_USER_ACTION
+                val current = _uiState.value
+                _uiState.value = current.copy(
+                    isInstallingAppUpdate = installing,
+                    appUpdateInstallMessage = status.message,
+                    downloadedApkPath = if (status.phase == AppUpdateInstallPhase.SUCCESS) null else current.downloadedApkPath,
+                    isAppUpdateAvailable = if (status.phase == AppUpdateInstallPhase.SUCCESS) false else current.isAppUpdateAvailable,
+                    showAppUpdateDialog = if (status.phase == AppUpdateInstallPhase.SUCCESS) false else current.showAppUpdateDialog,
+                    appUpdateError = if (status.phase == AppUpdateInstallPhase.FAILED && !status.message.isNullOrBlank()) {
+                        status.message
+                    } else current.appUpdateError
+                )
             }
         }
     }
@@ -2604,6 +2628,8 @@ class SettingsViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(
                 isDownloadingAppUpdate = true,
                 appUpdateDownloadProgress = 0f,
+                isInstallingAppUpdate = false,
+                appUpdateInstallMessage = null,
                 appUpdateError = null,
                 showAppUpdateDialog = true
             )
@@ -2648,34 +2674,63 @@ class SettingsViewModel @Inject constructor(
         val apkPath = _uiState.value.downloadedApkPath ?: return
         val apkFile = File(apkPath)
         if (!apkFile.exists()) {
-            _uiState.value = _uiState.value.copy(appUpdateError = "Downloaded file is missing", showAppUpdateDialog = true)
+            _uiState.value = _uiState.value.copy(
+                isInstallingAppUpdate = false,
+                appUpdateInstallMessage = null,
+                appUpdateError = "Downloaded file is missing",
+                showAppUpdateDialog = true
+            )
             return
         }
 
         if (!ApkInstaller.canRequestPackageInstalls(context)) {
-            _uiState.value = _uiState.value.copy(showUnknownSourcesDialog = true, showAppUpdateDialog = false)
+            _uiState.value = _uiState.value.copy(
+                isInstallingAppUpdate = false,
+                appUpdateInstallMessage = null,
+                showUnknownSourcesDialog = true,
+                showAppUpdateDialog = false
+            )
             return
         }
 
         // Check for signature conflict before installing
         val conflictMsg = ApkInstaller.checkSignatureConflict(context, apkFile)
         if (conflictMsg != null) {
-            _uiState.value = _uiState.value.copy(appUpdateError = conflictMsg, showAppUpdateDialog = true)
+            _uiState.value = _uiState.value.copy(
+                isInstallingAppUpdate = false,
+                appUpdateInstallMessage = null,
+                appUpdateError = conflictMsg,
+                showAppUpdateDialog = true
+            )
             return
         }
 
-        ApkInstaller.launchInstall(context, apkFile)
-        // Mark this release as "installed" so we don't re-show the update after the
-        // system installer returns the user to the old still-running process.
         viewModelScope.launch {
-            _uiState.value.availableAppUpdate?.tag?.let { tag ->
-                updatePreferences.setIgnoredTag(tag)
+            updatePreferences.setInstallStatus(
+                AppUpdateInstallPhase.INSTALLING,
+                "Starting installation…"
+            )
+        }
+        val launchStarted = ApkInstaller.launchInstall(context, apkFile)
+        if (!launchStarted) {
+            viewModelScope.launch {
+                updatePreferences.setInstallStatus(
+                    AppUpdateInstallPhase.FAILED,
+                    "Could not launch the system installer."
+                )
             }
+            _uiState.value = _uiState.value.copy(
+                isInstallingAppUpdate = false,
+                appUpdateInstallMessage = null,
+                appUpdateError = "Could not launch the system installer.",
+                showAppUpdateDialog = true
+            )
+            return
         }
         _uiState.value = _uiState.value.copy(
-            downloadedApkPath = null,
-            showAppUpdateDialog = false,
-            isAppUpdateAvailable = false,
+            showAppUpdateDialog = true,
+            isInstallingAppUpdate = true,
+            appUpdateInstallMessage = "Waiting for installer confirmation…",
             toastMessage = "Installing update...",
             toastType = ToastType.INFO
         )
