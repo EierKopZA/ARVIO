@@ -1178,7 +1178,7 @@ private fun DetailsContent(
             }
         }
 
-        val genreText = genres.take(2).joinToString(" / ").ifBlank {
+        val genreText = genres.take(2).map(::formatGenreName).joinToString(" / ").ifBlank {
             if (item.mediaType == MediaType.TV) "TV Series" else "Movie"
         }
         val displayDate = item.year.takeIf { it.isNotBlank() }
@@ -1806,7 +1806,7 @@ private fun DetailsContent(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                val genreText = genres.take(2).joinToString(" / ").ifEmpty {
+                val genreText = genres.take(2).map(::formatGenreName).joinToString(" / ").ifEmpty {
                     if (item.mediaType == MediaType.TV) "TV Series" else "Movie"
                 }
                 val isCompactHeight = configuration.screenHeightDp < 720

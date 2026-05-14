@@ -5,6 +5,7 @@ import com.arflix.tv.data.model.MediaType
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+import java.util.Locale
 
 private val releaseDateFormatter = DateTimeFormatter.ISO_LOCAL_DATE
 private val genreWordStartRegex = Regex("(^|[\\s/&-])([\\p{L}])")
@@ -29,8 +30,8 @@ fun parseRatingValue(raw: String): Float {
 fun formatGenreName(raw: String): String {
     val trimmed = raw.trim()
     if (trimmed.isEmpty()) return trimmed
-    val titled = trimmed.lowercase().replace(genreWordStartRegex) { match ->
-        match.groupValues[1] + match.groupValues[2].replaceFirstChar { it.titlecase() }
+    val titled = trimmed.lowercase(Locale.ROOT).replace(genreWordStartRegex) { match ->
+        match.groupValues[1] + match.groupValues[2].replaceFirstChar { it.titlecase(Locale.ROOT) }
     }
     return titled.replace(tvWordRegex, "TV")
 }
