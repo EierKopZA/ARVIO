@@ -765,7 +765,7 @@ class HomeViewModel @Inject constructor(
     private val categoryPaginationStates = ConcurrentHashMap<String, CategoryPaginationState>()
     private val preloadedRequests: MutableSet<String> = run {
         val backingMap = object : java.util.LinkedHashMap<String, Boolean>(1200, 0.75f, true) {
-            override fun removeEldestEntry(eldest: java.util.Map.Entry<String, Boolean>?): Boolean {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>): Boolean {
                 return size > 1200
             }
         }
