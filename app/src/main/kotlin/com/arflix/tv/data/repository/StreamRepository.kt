@@ -103,7 +103,7 @@ class StreamRepository @Inject constructor(
     // Cache getStreamAddons() result per content type, invalidated when addon list changes.
     // Avoids re-iterating all addon manifests on every stream resolution call.
     private val streamAddonsCache = mutableMapOf<String, List<Addon>>()
-    private var cachedAddonIds: String? = null
+    private var cachedStreamAddonsFingerprint: String? = null
     private val stremioAddonRuntime = StremioAddonRuntime(
         movieResolver = { addon, request ->
             fetchMovieStreamsFromAddon(
@@ -997,12 +997,12 @@ class StreamRepository @Inject constructor(
      */
     private fun getStreamAddons(addons: List<Addon>, type: String, id: String): List<Addon> {
         val normalizedType = type.trim().lowercase(Locale.US)
-        val currentIds = addons.joinToString(",") { it.id }
+        val currentFingerprint = streamAddonsFingerprint(addons)
 
         val baseCandidates: List<Addon> = synchronized(streamAddonsCache) {
-            if (currentIds != cachedAddonIds) {
+            if (currentFingerprint != cachedStreamAddonsFingerprint) {
                 streamAddonsCache.clear()
-                cachedAddonIds = currentIds
+                cachedStreamAddonsFingerprint = currentFingerprint
             }
             streamAddonsCache.getOrPut(normalizedType) {
                 addons.filter { addon ->
@@ -1068,6 +1068,32 @@ class StreamRepository @Inject constructor(
                 if (!idPrefixes.any { id.startsWith(it) }) return@filter false
             }
             true
+        }
+    }
+
+    private fun streamAddonsFingerprint(addons: List<Addon>): String {
+        return addons.joinToString("\n") { addon ->
+            val manifest = addon.manifest
+            val resources = manifest?.resources.orEmpty().joinToString(";") { resource ->
+                listOf(
+                    resource.name,
+                    resource.types.joinToString(","),
+                    resource.idPrefixes.orEmpty().joinToString(",")
+                ).joinToString(":")
+            }
+            listOf(
+                addon.id,
+                addon.isInstalled.toString(),
+                addon.isEnabled.toString(),
+                addon.runtimeKind.name,
+                addon.type.name,
+                addon.url.orEmpty(),
+                addon.transportUrl.orEmpty(),
+                manifest?.id.orEmpty(),
+                manifest?.version.orEmpty(),
+                manifest?.idPrefixes.orEmpty().joinToString(","),
+                resources
+            ).joinToString("|")
         }
     }
 
