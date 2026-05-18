@@ -2822,14 +2822,24 @@ class HomeViewModel @Inject constructor(
             }.mapNotNull { entry ->
                 val mediaType = if (entry.media_type == "tv") MediaType.TV else MediaType.MOVIE
                 val storedPct = (entry.progress * 100f).toInt()
-                val derivedPct = if (storedPct <= 0 && entry.duration_seconds > 0 && entry.position_seconds > 0) {
-                    ((entry.position_seconds.toFloat() / entry.duration_seconds.toFloat()) * 100f).toInt()
-                } else {
-                    storedPct
+                val hasResumePosition = entry.position_seconds > 0L
+                val derivedPct = when {
+                    storedPct > 0 -> storedPct
+                    entry.duration_seconds > 0 && hasResumePosition ->
+                        ((entry.position_seconds.toFloat() / entry.duration_seconds.toFloat()) * 100f).toInt()
+                    hasResumePosition -> 1
+                    else -> 0
                 }
+                val resolvedTitle = entry.title
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: entry.episode_title
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                    ?: "Untitled"
                 ContinueWatchingItem(
                     id = entry.show_tmdb_id,
-                    title = entry.title ?: return@mapNotNull null,
+                    title = resolvedTitle,
                     mediaType = mediaType,
                     progress = derivedPct.coerceIn(0, 100),
                     resumePositionSeconds = entry.position_seconds.coerceAtLeast(0L),
@@ -2856,14 +2866,24 @@ class HomeViewModel @Inject constructor(
             }.mapNotNull { entry ->
                 val mediaType = if (entry.media_type == "tv") MediaType.TV else MediaType.MOVIE
                 val storedPct = (entry.progress * 100f).toInt()
-                val derivedPct = if (storedPct <= 0 && entry.duration_seconds > 0 && entry.position_seconds > 0) {
-                    ((entry.position_seconds.toFloat() / entry.duration_seconds.toFloat()) * 100f).toInt()
-                } else {
-                    storedPct
+                val hasResumePosition = entry.position_seconds > 0L
+                val derivedPct = when {
+                    storedPct > 0 -> storedPct
+                    entry.duration_seconds > 0 && hasResumePosition ->
+                        ((entry.position_seconds.toFloat() / entry.duration_seconds.toFloat()) * 100f).toInt()
+                    hasResumePosition -> 1
+                    else -> 0
                 }
+                val resolvedTitle = entry.title
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: entry.episode_title
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                    ?: "Untitled"
                 ContinueWatchingItem(
                     id = entry.show_tmdb_id,
-                    title = entry.title ?: return@mapNotNull null,
+                    title = resolvedTitle,
                     mediaType = mediaType,
                     progress = derivedPct.coerceIn(0, 100),
                     resumePositionSeconds = entry.position_seconds.coerceAtLeast(0L),
@@ -2946,7 +2966,7 @@ class HomeViewModel @Inject constructor(
                 dismissedContinueWatchingKeys.contains(showKey) || persistedDismissedKeys.contains(showKey)
             }
             .filter { item ->
-                if (isTraktAuthenticated) true else item.progress in 1..99
+                if (isTraktAuthenticated) true else item.progress in 1..99 || item.resumePositionSeconds > 0L
             }
             .take(Constants.MAX_CONTINUE_WATCHING)
     }
@@ -2984,7 +3004,7 @@ class HomeViewModel @Inject constructor(
                 dismissedContinueWatchingKeys.contains(showKey) || persistedDismissedKeys.contains(showKey)
             }
             .filter { item ->
-                if (isTraktAuthenticated) true else item.progress in 1..99
+                if (isTraktAuthenticated) true else item.progress in 1..99 || item.resumePositionSeconds > 0L
             }
             .take(Constants.MAX_CONTINUE_WATCHING)
     }
@@ -4047,4 +4067,3 @@ class HomeViewModel @Inject constructor(
         updateStatusManager.reset()
     }
 }
-
