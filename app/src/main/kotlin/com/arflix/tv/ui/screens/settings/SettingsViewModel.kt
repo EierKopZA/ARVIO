@@ -1,4 +1,4 @@
-package com.arflix.tv.ui.screens.settings
+﻿package com.arflix.tv.ui.screens.settings
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -177,10 +177,10 @@ data class SettingsUiState(
     val oledBlackBackground: Boolean = false,
     val clockFormat: String = "24h",
     val qualityFilters: List<QualityFilterConfig> = emptyList(),
-    // Spoiler blur — blur unwatched episode card images and hide synopsis
+    // Spoiler blur â€” blur unwatched episode card images and hide synopsis
     val spoilerBlurEnabled: Boolean = false,
-    // Focus border color — user-selectable theme colour for the D-pad focus ring
-    val focusBorderColor: String = "White",
+    // Accent color â€” user-selectable theme colour for focus rings, buttons, and selected items
+    val accentColor: String = "White",
     val qualityFilterPresetLabel: String = "OFF",
     // Toast
     val toastMessage: String? = null,
@@ -270,7 +270,7 @@ class SettingsViewModel @Inject constructor(
     private fun includeSpecialsKey() = profileManager.profileBooleanKey("include_specials")
     private val qualityFiltersKey = stringPreferencesKey("quality_filters")
 
-    // Global (non-profile-scoped) AI subtitle settings — device-wide, not per-profile
+    // Global (non-profile-scoped) AI subtitle settings â€” device-wide, not per-profile
     private val subtitleAiEnabledKey = booleanPreferencesKey("subtitle_ai_enabled")
     private val subtitleAiAutoSelectKey = booleanPreferencesKey("subtitle_ai_auto_select")
     private val subtitleAiApiKeyKey = stringPreferencesKey("subtitle_ai_api_key")
@@ -414,7 +414,7 @@ class SettingsViewModel @Inject constructor(
             val spoilerBlurEnabled = prefs[spoilerBlurKey()] ?: false
             val showBudget = prefs[showBudgetKey()] ?: true
             val clockFormat = prefs[clockFormatKey()] ?: "24h"
-            val focusBorderColor = prefs[com.arflix.tv.util.FOCUS_BORDER_COLOR_KEY] ?: "White"
+            val accentColor = prefs[com.arflix.tv.util.ACCENT_COLOR_KEY] ?: "White"
             val volumeBoostDb = prefs[volumeBoostDbKey()]?.toIntOrNull()?.coerceIn(0, 15) ?: 0
             val showLoadingStats = prefs[showLoadingStatsKey()] ?: true
 
@@ -502,7 +502,7 @@ class SettingsViewModel @Inject constructor(
                 skipProfileSelection = skipProfileSelection,
                 oledBlackBackground = oledBlackBackground,
                 clockFormat = clockFormat,
-                focusBorderColor = focusBorderColor,
+                accentColor = accentColor,
                 qualityFilters = qualityFilters,
                 qualityFilterPresetLabel = detectQualityFilterPreset(qualityFilters).label,
                 subtitleAiEnabled = subtitleAiEnabled,
@@ -1056,16 +1056,16 @@ class SettingsViewModel @Inject constructor(
 
     /**
      * Cycle the focus border color through the rainbow palette.
-     * Order: White → Red → Orange → Yellow → Green → Blue → Indigo → Violet → White
+     * Order: White â†’ Red â†’ Orange â†’ Yellow â†’ Green â†’ Blue â†’ Indigo â†’ Violet â†’ White
      */
-    fun cycleFocusBorderColor() {
+    fun cycleAccentColor() {
         val colors = listOf("White", "Red", "Orange", "Yellow", "Green", "Blue", "Indigo", "Violet")
-        val current = _uiState.value.focusBorderColor
+        val current = _uiState.value.accentColor
         val nextIndex = (colors.indexOf(current) + 1) % colors.size
         val next = colors[nextIndex]
         viewModelScope.launch {
-            context.settingsDataStore.edit { it[com.arflix.tv.util.FOCUS_BORDER_COLOR_KEY] = next }
-            _uiState.value = _uiState.value.copy(focusBorderColor = next)
+            context.settingsDataStore.edit { it[com.arflix.tv.util.ACCENT_COLOR_KEY] = next }
+            _uiState.value = _uiState.value.copy(accentColor = next)
             syncLocalStateToCloud(silent = true)
         }
     }
@@ -1122,7 +1122,7 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    // ── AI Subtitles ──────────────────────────────────────────────────────────
+    // â”€â”€ AI Subtitles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     fun setSubtitleAiEnabled(enabled: Boolean) {
         viewModelScope.launch {
@@ -1310,7 +1310,7 @@ class SettingsViewModel @Inject constructor(
             // Prevent losing custom filters by cycling into a preset
             if (currentPreset == QualityFilterPreset.CUSTOM) {
                 _uiState.value = _uiState.value.copy(
-                    toastMessage = "Custom filters detected — use manual editing to modify",
+                    toastMessage = "Custom filters detected â€” use manual editing to modify",
                     toastType = ToastType.INFO
                 )
                 return@launch
@@ -2433,7 +2433,7 @@ class SettingsViewModel @Inject constructor(
             if (pushResult == null) {
                 _uiState.value = _uiState.value.copy(
                     isForceCloudSyncing = false,
-                    toastMessage = "Cloud sync upload timed out — try again",
+                    toastMessage = "Cloud sync upload timed out â€” try again",
                     toastType = ToastType.ERROR
                 )
                 return@launch

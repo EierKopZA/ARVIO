@@ -1,4 +1,4 @@
-package com.arflix.tv.ui.components
+﻿package com.arflix.tv.ui.components
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -60,7 +60,7 @@ val MobileContentTopInset = 16.dp
 val AppTopBarHorizontalPadding = 28.dp
 
 // Navigation items that appear CENTERED in the top bar (Search, Home, Watchlist, TV).
-// Settings is NOT in this list — it's rendered as a standalone gear icon on the right.
+// Settings is NOT in this list â€” it's rendered as a standalone gear icon on the right.
 private val NAV_ITEMS = SidebarItem.entries.filter { it != SidebarItem.SETTINGS }
 
 fun topBarMaxIndex(hasProfile: Boolean): Int {
@@ -100,7 +100,7 @@ fun AppTopBar(
     hasUpdateBadge: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    // Always show the profile avatar when a profile exists — it's clickable
+    // Always show the profile avatar when a profile exists â€” it's clickable
     // and opens the profile switcher. The name text was removed per the mockup
     // (avatar-only, no label).
     val showProfile = profile != null
@@ -133,7 +133,7 @@ fun AppTopBar(
                 .padding(start = AppTopBarHorizontalPadding, end = AppTopBarHorizontalPadding, top = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // ── LEFT: Profile avatar (only if multiple profiles) ──
+            // â”€â”€ LEFT: Profile avatar (only if multiple profiles) â”€â”€
             if (showProfile && profile != null) {
                 TopBarProfileAvatar(
                     profile = profile,
@@ -142,7 +142,7 @@ fun AppTopBar(
                 Spacer(modifier = Modifier.width(16.dp))
             }
 
-            // ── CENTER: Navigation chips (Search, Home, Watchlist, TV) ──
+            // â”€â”€ CENTER: Navigation chips (Search, Home, Watchlist, TV) â”€â”€
             Row(
                 modifier = Modifier.weight(1f),
                 verticalAlignment = Alignment.CenterVertically,
@@ -163,7 +163,7 @@ fun AppTopBar(
                 }
             }
 
-            // ── RIGHT: Settings gear + clock ──
+            // â”€â”€ RIGHT: Settings gear + clock â”€â”€
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
@@ -193,6 +193,8 @@ private fun TopBarNavChip(
     isFocused: Boolean,
     isSelected: Boolean
 ) {
+    val accent = resolveAccentColor(fallback = Color.White)
+
     val containerColor by animateColorAsState(
         targetValue = when {
             isFocused -> Color.White.copy(alpha = 0.2f)
@@ -204,8 +206,8 @@ private fun TopBarNavChip(
     )
     val iconColor by animateColorAsState(
         targetValue = when {
-            isFocused -> Color.White
-            isSelected -> Color.White.copy(alpha = 0.92f)
+            isSelected -> accent  // selected icon gets accent
+            isFocused -> Color.White  // focused icon stays white
             else -> Color.White.copy(alpha = 0.62f)
         },
         animationSpec = tween(AnimationConstants.DURATION_FAST),
@@ -213,8 +215,8 @@ private fun TopBarNavChip(
     )
     val textColor by animateColorAsState(
         targetValue = when {
-            isFocused -> Color.White
-            isSelected -> Color.White.copy(alpha = 0.92f)
+            isSelected -> accent  // selected text gets accent
+            isFocused -> Color.White  // focused text stays white
             else -> Color.White.copy(alpha = 0.68f)
         },
         animationSpec = tween(AnimationConstants.DURATION_FAST),
@@ -261,7 +263,7 @@ private fun TopBarNavChip(
 }
 
 /**
- * Settings gear icon — no text label, just the icon. Placed on the far right
+ * Settings gear icon â€” no text label, just the icon. Placed on the far right
  * of the top bar per the mockup. Receives focus/selection state for D-pad nav.
  */
 @Composable
@@ -270,10 +272,12 @@ private fun TopBarSettingsGear(
     isSelected: Boolean,
     hasBadge: Boolean = false
 ) {
+    val accent = resolveAccentColor(fallback = Color.White)
+
     val iconColor by animateColorAsState(
         targetValue = when {
-            isFocused -> Color.White
-            isSelected -> Color.White.copy(alpha = 0.92f)
+            isSelected -> accent  // selected settings gear gets accent
+            isFocused -> Color.White  // focused stays white
             else -> Color.White.copy(alpha = 0.5f)
         },
         animationSpec = tween(AnimationConstants.DURATION_FAST),
@@ -327,7 +331,7 @@ private fun TopBarSettingsGear(
 }
 
 /**
- * Profile avatar only — no name text. Just the circular avatar with gradient/icon.
+ * Profile avatar only â€” no name text. Just the circular avatar with gradient/icon.
  * Shown only when multiple profiles exist.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)

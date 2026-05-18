@@ -1,4 +1,4 @@
-package com.arflix.tv.ui.components
+﻿package com.arflix.tv.ui.components
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.unit.sp
@@ -46,6 +46,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.data.model.Profile
 import com.arflix.tv.ui.skin.ArvioSkin
+import com.arflix.tv.ui.skin.resolveAccentColor
 import com.arflix.tv.ui.theme.AnimationConstants
 import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
@@ -211,11 +212,13 @@ private fun SidebarIcon(
     isFocused: Boolean,
     hasBadge: Boolean = false
 ) {
-    // Animated icon color - dark grey normally, pure white when focused
+    val accent = resolveAccentColor(fallback = Color.White)
+
+    // Animated icon color - accent when selected, stays white/light when focused via ring
     val iconColor by animateColorAsState(
         targetValue = when {
-            isFocused -> Color.White  // Pure white when focused
-            isSelected -> Color(0xFF666666)  // Dark grey when selected
+            isSelected -> accent  // ROYGBIV accent when selected (current screen)
+            isFocused -> Color.White  // white when D-pad navigating
             else -> Color(0xFF444444)  // Darker grey when unfocused
         },
         animationSpec = tween(

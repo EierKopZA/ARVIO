@@ -1,4 +1,4 @@
-package com.arflix.tv.ui.screens.details
+﻿package com.arflix.tv.ui.screens.details
 
 import android.content.Context
 import android.content.Intent
@@ -157,6 +157,7 @@ import com.arflix.tv.ui.focus.rememberArvioDpadRepeatGate
 import com.arflix.tv.ui.skin.ArvioFocusableSurface
 import com.arflix.tv.ui.skin.ArvioSkin
 import com.arflix.tv.ui.skin.rememberArvioCardShape
+import com.arflix.tv.ui.skin.resolveAccentColor
 import com.arflix.tv.ui.theme.AnimationConstants
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.BackgroundCard
@@ -349,7 +350,7 @@ fun DetailsScreen(
         }
     }
 
-    // D-pad key handler — only used on TV (skipped on mobile/touch devices)
+    // D-pad key handler â€” only used on TV (skipped on mobile/touch devices)
     val dpadRepeatGate = rememberArvioDpadRepeatGate(
         horizontalMinRepeatIntervalMs = 80L,
         verticalMinRepeatIntervalMs = 112L
@@ -580,11 +581,11 @@ fun DetailsScreen(
                                             } else null
 
                                             if (!uiState.autoPlaySingleSource) {
-                                                // Autoplay OFF → open the source picker; never auto-play.
+                                                // Autoplay OFF â†’ open the source picker; never auto-play.
                                                 showStreamSelector = true
                                                 viewModel.loadStreams(uiState.imdbId, season, episode)
                                             } else {
-                                                // Autoplay ON → go straight to the player; PlayerScreen auto-picks.
+                                                // Autoplay ON â†’ go straight to the player; PlayerScreen auto-picks.
                                                 onNavigateToPlayer(
                                                     mediaType,
                                                     mediaId,
@@ -611,7 +612,7 @@ fun DetailsScreen(
                                         }
                                         3 -> viewModel.toggleWatched(episodeIndex)
                                         4 -> viewModel.toggleWatchlist()
-                                        5 -> { // View Collection — scroll to and focus the collection row
+                                        5 -> { // View Collection â€” scroll to and focus the collection row
                                             focusedSection = FocusSection.COLLECTION
                                             collectionIndex = 0
                                         }
@@ -756,11 +757,11 @@ fun DetailsScreen(
                                 } else null
 
                                 if (!uiState.autoPlaySingleSource) {
-                                    // Autoplay OFF → open the source picker; never auto-play.
+                                    // Autoplay OFF â†’ open the source picker; never auto-play.
                                     showStreamSelector = true
                                     viewModel.loadStreams(uiState.imdbId, season, episode)
                                 } else {
-                                    // Autoplay ON → go straight to the player; PlayerScreen auto-picks.
+                                    // Autoplay ON â†’ go straight to the player; PlayerScreen auto-picks.
                                     onNavigateToPlayer(
                                         mediaType, mediaId, season, episode,
                                         uiState.imdbId, null, null, null, startPositionMs
@@ -777,7 +778,7 @@ fun DetailsScreen(
                             }
                             3 -> viewModel.toggleWatched(episodeIndex)
                             4 -> viewModel.toggleWatchlist()
-                            5 -> { // View Collection — scroll to and focus the collection row on this page
+                            5 -> { // View Collection â€” scroll to and focus the collection row on this page
                                 focusedSection = FocusSection.COLLECTION
                                 collectionIndex = 0
                             }
@@ -1580,7 +1581,7 @@ private fun DetailsContent(
                     }
                 }
 
-                // Collection items section — shown when this movie belongs to a TMDB collection
+                // Collection items section â€” shown when this movie belongs to a TMDB collection
                 if (collectionItems.isNotEmpty()) {
                     Column(
                         modifier = Modifier
@@ -1995,7 +1996,7 @@ private fun DetailsContent(
                     )
                 }
 
-                // "View Collection" button — only shown when this movie belongs to a TMDB collection
+                // "View Collection" button â€” only shown when this movie belongs to a TMDB collection
                 if (hasCollectionAction) {
                     Box(modifier = Modifier.clickable { onButtonClick(5) }) {
                         PremiumActionButton(
@@ -2244,7 +2245,7 @@ private fun DetailsTvRows(
             }
         }
 
-        // Collection items row — shown when this movie belongs to a TMDB collection
+        // Collection items row â€” shown when this movie belongs to a TMDB collection
         if (collectionItems.isNotEmpty()) {
             item { Spacer(modifier = Modifier.height(4.dp)) }
             item {
@@ -2943,7 +2944,7 @@ private fun MobileScoreBadge(
 @Composable
 private fun MobileMetadataSeparator() {
     Text(
-        text = "•",
+        text = "â€¢",
         style = ArflixTypography.caption.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
         color = Color.White.copy(alpha = 0.42f),
         maxLines = 1
@@ -2951,7 +2952,7 @@ private fun MobileMetadataSeparator() {
 }
 
 /**
- * Mobile action button — labeled, tappable, Netflix-style
+ * Mobile action button â€” labeled, tappable, Netflix-style
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -3116,20 +3117,22 @@ private fun PremiumActionButton(
         label = "button_scale"
     )
 
-    // Animated background color - buttons only glow when focused
+    val accent = resolveAccentColor(fallback = Color.White)
+
+    // Animated background color - button fills with accent when focused
     val backgroundColor by animateColorAsState(
         targetValue = when {
-            isFocused && isPrimary -> Color.White
-            isFocused -> Color.White.copy(alpha = 0.95f)
+            isFocused && isPrimary -> accent
+            isFocused -> accent
             else -> Color.Transparent
         },
         animationSpec = tween(150),
         label = "button_bg"
     )
 
-    // Animated text/icon color - black when focused (on white bg), white otherwise
+    // Animated text/icon color - white on accent bg when focused, white otherwise
     val contentColor by animateColorAsState(
-        targetValue = if (isFocused) Color.Black else Color.White.copy(alpha = 0.9f),
+        targetValue = if (isFocused) Color.White else Color.White.copy(alpha = 0.9f),
         animationSpec = tween(150),
         label = "button_content"
     )
@@ -3229,7 +3232,7 @@ private fun EpisodeCard(
             .build()
     }
 
-    val episodeCode = "S${episode.seasonNumber} • E${String.format("%02d", episode.episodeNumber)}"
+    val episodeCode = "S${episode.seasonNumber} â€¢ E${String.format("%02d", episode.episodeNumber)}"
     val ratingLabel = if (episode.voteAverage > 0f) {
         "${String.format("%.1f", episode.voteAverage)}"
     } else {

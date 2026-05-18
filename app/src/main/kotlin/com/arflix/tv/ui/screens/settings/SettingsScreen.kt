@@ -1,4 +1,4 @@
-package com.arflix.tv.ui.screens.settings
+﻿package com.arflix.tv.ui.screens.settings
 
 import android.content.Context
 import android.content.Intent
@@ -158,7 +158,7 @@ import com.arflix.tv.ui.components.toggleCatalogueRowLayoutMode
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
 import com.arflix.tv.ui.focus.arvioDpadFocusGroup
-import com.arflix.tv.ui.skin.resolveFocusBorderColor
+import com.arflix.tv.ui.skin.resolveAccentColor
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.appBackgroundDark
 import com.arflix.tv.ui.theme.BackgroundElevated
@@ -229,7 +229,7 @@ private fun openExternalUrl(context: Context, url: String) {
  * same [index] the parent uses as its `focusedIndex == N` comparator.
  *
  * Sections that don't adopt this modifier fall back to the legacy ratio
- * scroll — this modifier is purely additive, non-regressive.
+ * scroll â€” this modifier is purely additive, non-regressive.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -488,7 +488,7 @@ fun SettingsScreen(
     // Auto-scroll content to keep focused item visible in all sections.
     //
     // Strategy: prefer the per-row [BringIntoViewRequester] registered via
-    // Modifier.settingsFocusSlot(...) — this is Compose's native mechanism
+    // Modifier.settingsFocusSlot(...) â€” this is Compose's native mechanism
     // for nested-scroll focus-follow and correctly handles variable-height
     // rows and arbitrary nesting depth. Sections that haven't adopted the
     // modifier fall back to the legacy ratio heuristic, which is imprecise
@@ -509,7 +509,7 @@ fun SettingsScreen(
 
         val requester = focusTracker.requesters[contentFocusIndex]
         if (requester != null) {
-            // Native branch — handles all geometry correctly.
+            // Native branch â€” handles all geometry correctly.
             runCatching { requester.bringIntoView() }
             return@LaunchedEffect
         }
@@ -790,7 +790,7 @@ fun SettingsScreen(
                                                 21 -> viewModel.cycleClockFormat()
                                                 22 -> viewModel.setShowBudget(!uiState.showBudget)
                                                 23 -> viewModel.setSpoilerBlurEnabled(!uiState.spoilerBlurEnabled)
-                                                24 -> viewModel.cycleFocusBorderColor()
+                                                24 -> viewModel.cycleAccentColor()
                                                 25 -> openDnsProviderPicker()
                                                 26 -> viewModel.setShowLoadingStats(!uiState.showLoadingStats)
                                                 27 -> viewModel.cycleVolumeBoost()
@@ -1166,8 +1166,8 @@ fun SettingsScreen(
                             onShowBudgetToggle = { viewModel.setShowBudget(it) },
                             spoilerBlurEnabled = uiState.spoilerBlurEnabled,
                             onSpoilerBlurToggle = { viewModel.setSpoilerBlurEnabled(it) },
-                            focusBorderColor = uiState.focusBorderColor,
-                            onFocusBorderColorClick = { viewModel.cycleFocusBorderColor() },
+                            accentColor = uiState.accentColor,
+                            onAccentColorClick = { viewModel.cycleAccentColor() },
                             showLoadingStats = uiState.showLoadingStats,
                             onShowLoadingStatsToggle = { viewModel.setShowLoadingStats(it) },
                             onVolumeBoostClick = { viewModel.cycleVolumeBoost() },
@@ -2073,7 +2073,7 @@ private fun SettingsChip(
     isFocused: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val chipFocusColor = resolveFocusBorderColor(fallback = Color.White)
+    val chipFocusColor = resolveAccentColor(fallback = Color.White)
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(10.dp))
@@ -3486,11 +3486,11 @@ private fun MobileSettingsSubPage(
                     )
                     MobileSettingsRow(
                         icon = Icons.Default.Palette,
-                        title = stringResource(R.string.focus_border_color),
-                        value = uiState.focusBorderColor,
+                        title = stringResource(R.string.accent_color),
+                        value = uiState.accentColor,
                         isFocused = false,
                         showDivider = false,
-                        onClick = { viewModel.cycleFocusBorderColor() }
+                        onClick = { viewModel.cycleAccentColor() }
                     )
                 }
             }
@@ -3827,7 +3827,7 @@ private fun SettingsSectionItem(
         isSelected -> TextPrimary
         else -> TextSecondary
     }
-    val accentColor = resolveFocusBorderColor(fallback = Pink)
+    val accentColor = resolveAccentColor(fallback = Pink)
     
     Row(
         modifier = Modifier
@@ -3933,7 +3933,7 @@ private fun TvSettingsStatusPill(label: String) {
         Box(
             modifier = Modifier
                 .size(6.dp)
-                .background(resolveFocusBorderColor(fallback = Pink), RoundedCornerShape(99.dp))
+                .background(resolveAccentColor(fallback = Pink), RoundedCornerShape(99.dp))
         )
         Spacer(modifier = Modifier.width(8.dp))
         Text(
@@ -3990,7 +3990,7 @@ private fun TvSettingsInsightPanel(
                 Text(
                     text = if (focusedIndex >= 0) "Focused setting" else "Section",
                     style = ArflixTypography.caption,
-                    color = resolveFocusBorderColor(fallback = Pink),
+                    color = resolveAccentColor(fallback = Pink),
                     maxLines = 1
                 )
                 Spacer(modifier = Modifier.height(6.dp))
@@ -4169,7 +4169,7 @@ private fun tvSettingsPanelFacts(
         )
         "appearance" -> listOf(
             "OLED" to if (uiState.oledBlackBackground) "On" else "Off",
-            "Focus border" to uiState.focusBorderColor
+            "Accent color" to uiState.accentColor
         )
         "profiles" -> listOf(
             "Startup" to if (uiState.skipProfileSelection) "Skip picker" else "Show picker"
@@ -4289,7 +4289,7 @@ private fun TvGeneralSettingsRows(
     clockFormat: String = "24h",
     showBudget: Boolean = true,
     spoilerBlurEnabled: Boolean = false,
-    focusBorderColor: String = "White",
+    accentColor: String = "White",
     volumeBoostDb: Int = 0,
     focusedIndex: Int,
     onSubtitleClick: () -> Unit,
@@ -4308,7 +4308,7 @@ private fun TvGeneralSettingsRows(
     onClockFormatClick: () -> Unit = {},
     onShowBudgetToggle: (Boolean) -> Unit = {},
     onSpoilerBlurToggle: (Boolean) -> Unit = {},
-    onFocusBorderColorClick: () -> Unit = {},
+    onAccentColorClick: () -> Unit = {},
     showLoadingStats: Boolean = true,
     onShowLoadingStatsToggle: (Boolean) -> Unit = {},
     onVolumeBoostClick: () -> Unit = {},
@@ -4411,7 +4411,7 @@ private fun TvGeneralSettingsRows(
                 21 -> SettingsRow(Icons.Default.Schedule, stringResource(R.string.clock_format), stringResource(R.string.clock_format_desc), if (clockFormat == "12h") "12-hour" else "24-hour", focusedIndex == localIndex, onClockFormatClick, Modifier.settingsFocusSlot(localIndex))
                 22 -> SettingsToggleRow(stringResource(R.string.show_budget), stringResource(R.string.show_budget_desc), showBudget, focusedIndex == localIndex, onShowBudgetToggle, Modifier.settingsFocusSlot(localIndex))
                 23 -> SettingsToggleRow(stringResource(R.string.spoiler_blur), stringResource(R.string.spoiler_blur_desc), spoilerBlurEnabled, focusedIndex == localIndex, onSpoilerBlurToggle, Modifier.settingsFocusSlot(localIndex))
-                24 -> SettingsRow(Icons.Default.Palette, stringResource(R.string.focus_border_color), stringResource(R.string.focus_border_color_desc), focusBorderColor, focusedIndex == localIndex, onFocusBorderColorClick, Modifier.settingsFocusSlot(localIndex))
+                24 -> SettingsRow(Icons.Default.Palette, stringResource(R.string.accent_color), stringResource(R.string.accent_color_desc), accentColor, focusedIndex == localIndex, onAccentColorClick, Modifier.settingsFocusSlot(localIndex))
                 25 -> SettingsRow(Icons.Default.Language, stringResource(R.string.dns_provider), stringResource(R.string.dns_desc), dnsProvider, focusedIndex == localIndex, onDnsProviderClick, Modifier.settingsFocusSlot(localIndex))
                 26 -> SettingsToggleRow(stringResource(R.string.show_loading_stats), stringResource(R.string.show_loading_stats_desc), showLoadingStats, focusedIndex == localIndex, onShowLoadingStatsToggle, Modifier.settingsFocusSlot(localIndex))
                 27 -> SettingsRow(
@@ -4468,7 +4468,7 @@ private fun GeneralSettings(
     clockFormat: String = "24h",
     showBudget: Boolean = true,
     spoilerBlurEnabled: Boolean = false,
-    focusBorderColor: String = "White",
+    accentColor: String = "White",
     volumeBoostDb: Int = 0,
     focusedIndex: Int,
     onSubtitleClick: () -> Unit,
@@ -4487,7 +4487,7 @@ private fun GeneralSettings(
     onClockFormatClick: () -> Unit = {},
     onShowBudgetToggle: (Boolean) -> Unit = {},
     onSpoilerBlurToggle: (Boolean) -> Unit = {},
-    onFocusBorderColorClick: () -> Unit = {},
+    onAccentColorClick: () -> Unit = {},
     showLoadingStats: Boolean = true,
     onShowLoadingStatsToggle: (Boolean) -> Unit = {},
     onVolumeBoostClick: () -> Unit = {},
@@ -4518,7 +4518,7 @@ private fun GeneralSettings(
     onSubtitleAiQrClick: () -> Unit = {}
 ) {
     Column {
-        // ── Language & Subtitles ──
+        // â”€â”€ Language & Subtitles â”€â”€
         Text(
             text = stringResource(R.string.language_and_subtitles),
             style = ArflixTypography.caption.copy(fontSize = 11.sp, letterSpacing = 0.8.sp),
@@ -4624,7 +4624,7 @@ private fun GeneralSettings(
             modifier = Modifier.settingsFocusSlot(9)
         )
 
-        // ── Playback ──
+        // â”€â”€ Playback â”€â”€
         Spacer(modifier = Modifier.height(24.dp))
         Text(
             text = stringResource(R.string.playback),
@@ -4699,7 +4699,7 @@ private fun GeneralSettings(
             modifier = Modifier.settingsFocusSlot(16)
         )
 
-        // ── Interface ──
+        // â”€â”€ Interface â”€â”€
         Spacer(modifier = Modifier.height(24.dp))
         Text(
             text = stringResource(R.string.interface_label),
@@ -4761,7 +4761,7 @@ private fun GeneralSettings(
             modifier = Modifier.settingsFocusSlot(21)
         )
         Spacer(modifier = Modifier.height(10.dp))
-        // Home hero controls — issue #72. The movie Budget line on the hero banner
+        // Home hero controls â€” issue #72. The movie Budget line on the hero banner
         // makes the metadata row noisy on small screens and some users want to hide it.
         SettingsToggleRow(
             title = stringResource(R.string.show_budget),
@@ -4783,15 +4783,15 @@ private fun GeneralSettings(
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
             icon = Icons.Default.Palette,
-            title = stringResource(R.string.focus_border_color),
-            subtitle = stringResource(R.string.focus_border_color_desc),
-            value = focusBorderColor,
+            title = stringResource(R.string.accent_color),
+            subtitle = stringResource(R.string.accent_color_desc),
+            value = accentColor,
             isFocused = focusedIndex == 24,
-            onClick = onFocusBorderColorClick,
+            onClick = onAccentColorClick,
             modifier = Modifier.settingsFocusSlot(24)
         )
 
-        // ── Network ──
+        // â”€â”€ Network â”€â”€
         Spacer(modifier = Modifier.height(24.dp))
         Text(
             text = stringResource(R.string.network),
@@ -4819,7 +4819,7 @@ private fun GeneralSettings(
             modifier = Modifier.settingsFocusSlot(26)
         )
 
-        // ── Audio ──
+        // â”€â”€ Audio â”€â”€
         Spacer(modifier = Modifier.height(24.dp))
         Text(
             text = stringResource(R.string.audio),
@@ -4841,7 +4841,7 @@ private fun GeneralSettings(
             modifier = Modifier.settingsFocusSlot(27)
         )
 
-        // ── AI Subtitles ──
+        // â”€â”€ AI Subtitles â”€â”€
         Spacer(modifier = Modifier.height(24.dp))
         Text(
             text = stringResource(R.string.ai_subtitles_section),
@@ -4863,8 +4863,8 @@ private fun GeneralSettings(
             title = stringResource(R.string.ai_model_title),
             subtitle = stringResource(R.string.ai_model_desc),
             value = when (subtitleAiModel) {
-                com.arflix.tv.ui.screens.player.SubtitleAiModel.GROQ_LLAMA_70B -> "Groq – Llama 3.3 70B"
-                com.arflix.tv.ui.screens.player.SubtitleAiModel.GEMINI_FLASH_25 -> "Google – Gemini 2.5 Flash"
+                com.arflix.tv.ui.screens.player.SubtitleAiModel.GROQ_LLAMA_70B -> "Groq â€“ Llama 3.3 70B"
+                com.arflix.tv.ui.screens.player.SubtitleAiModel.GEMINI_FLASH_25 -> "Google â€“ Gemini 2.5 Flash"
             },
             isFocused = focusedIndex == 29,
             onClick = onSubtitleAiModelClick,
@@ -4929,11 +4929,11 @@ private fun maskAiApiKey(key: String, notSetLabel: String = "Not set"): String {
     val trimmed = key.trim()
     if (trimmed.isBlank()) return notSetLabel
     val provider = when {
-        trimmed.startsWith("gsk_") -> "Groq · "
-        trimmed.startsWith("AIzaSy") -> "Gemini · "
+        trimmed.startsWith("gsk_") -> "Groq Â· "
+        trimmed.startsWith("AIzaSy") -> "Gemini Â· "
         else -> ""
     }
-    val masked = if (trimmed.length <= 4) "••••" else "••••${trimmed.takeLast(4)}"
+    val masked = if (trimmed.length <= 4) "â€¢â€¢â€¢â€¢" else "â€¢â€¢â€¢â€¢${trimmed.takeLast(4)}"
     return "$provider$masked"
 }
 
@@ -4945,8 +4945,8 @@ private fun AiModelDialog(
 ) {
     val isMobile = LocalDeviceType.current.isTouchDevice()
     val options = listOf(
-        Triple(com.arflix.tv.ui.screens.player.SubtitleAiModel.GROQ_LLAMA_70B, "Groq – Llama 3.3 70B", stringResource(R.string.ai_groq_model_note)),
-        Triple(com.arflix.tv.ui.screens.player.SubtitleAiModel.GEMINI_FLASH_25, "Google – Gemini 2.5 Flash", stringResource(R.string.ai_gemini_model_note))
+        Triple(com.arflix.tv.ui.screens.player.SubtitleAiModel.GROQ_LLAMA_70B, "Groq â€“ Llama 3.3 70B", stringResource(R.string.ai_groq_model_note)),
+        Triple(com.arflix.tv.ui.screens.player.SubtitleAiModel.GEMINI_FLASH_25, "Google â€“ Gemini 2.5 Flash", stringResource(R.string.ai_gemini_model_note))
     )
     BackHandler { onDismiss() }
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
@@ -5602,7 +5602,7 @@ private fun SettingsRow(
     modifier: Modifier = Modifier
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val focusRingColor = resolveFocusBorderColor(fallback = Pink)
+    val focusRingColor = resolveAccentColor(fallback = Pink)
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -5685,7 +5685,7 @@ private fun SettingsToggleRow(
     modifier: Modifier = Modifier
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val focusRingColor = resolveFocusBorderColor(fallback = Pink)
+    val focusRingColor = resolveAccentColor(fallback = Pink)
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -6055,7 +6055,7 @@ private fun CatalogDiscoveryInputButton(
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val inputFocusColor = resolveFocusBorderColor(fallback = Color.White)
+    val inputFocusColor = resolveAccentColor(fallback = Color.White)
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
@@ -6187,7 +6187,7 @@ private fun CatalogDiscoveryResultRow(
     compact: Boolean = false
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val compactFocusColor = resolveFocusBorderColor(fallback = Color.White)
+    val compactFocusColor = resolveAccentColor(fallback = Color.White)
     val creator = result.creatorName ?: result.creatorHandle
     val creatorMeta = creator?.let { "by $it" }
     val itemCountMeta = result.itemCount?.let { "$it items" }
@@ -6307,7 +6307,7 @@ private fun CatalogDiscoveryResultRow(
         return
     }
 
-    val resultFocusColor = resolveFocusBorderColor(fallback = Color.White)
+    val resultFocusColor = resolveAccentColor(fallback = Color.White)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -6877,18 +6877,19 @@ private fun CatalogActionChip(
     onClick: () -> Unit = {}
 ) {
     // Support both D-pad focus AND touch pressed state
+    val accent = resolveAccentColor(fallback = Color.White)
     var isPressed by remember { mutableStateOf(false) }
     val visualActive = isFocused || isPressed
     val bgColor = when {
         !enabled -> Color.Black.copy(alpha = 0.4f)
         visualActive && isDestructive -> Color(0xFFDC2626)
-        visualActive -> Color.White
+        visualActive -> accent  // full fill with accent color
         else -> Color.White.copy(alpha = 0.08f)
     }
     val fgColor = when {
         !enabled -> Color.White.copy(alpha = 0.5f)
         visualActive && isDestructive -> Color.White
-        visualActive -> Color.Black
+        visualActive -> Color.White  // white icon on accent bg
         else -> Color.White.copy(alpha = 0.7f)
     }
     Box(
@@ -6898,7 +6899,7 @@ private fun CatalogActionChip(
             .background(bgColor, RoundedCornerShape(8.dp))
             .border(
                 width = if (visualActive) 1.5.dp else 1.dp,
-                color = if (visualActive) Color.White.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.15f),
+                color = if (visualActive) accent else Color.White.copy(alpha = 0.15f),
                 shape = RoundedCornerShape(8.dp)
             ),
         contentAlignment = Alignment.Center
@@ -7025,7 +7026,7 @@ private fun AddonRow(
     val isToggleFocused = isFocused && focusedAction == 0
     val isDeleteFocused = canDelete && isFocused && focusedAction == 1
     val isEnabled = addon.isEnabled
-    val focusRingColor = resolveFocusBorderColor(fallback = Pink)
+    val focusRingColor = resolveAccentColor(fallback = Pink)
 
     Row(
         modifier = modifier
@@ -7290,7 +7291,7 @@ private fun AccountActionRow(
     isEnabled: Boolean,
     isFocused: Boolean
 ) {
-    val focusRingColor = resolveFocusBorderColor(fallback = Pink)
+    val focusRingColor = resolveAccentColor(fallback = Pink)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -7359,7 +7360,7 @@ private fun SettingsActionRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val focusRingColor = resolveFocusBorderColor(fallback = Pink)
+    val focusRingColor = resolveAccentColor(fallback = Pink)
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -7435,7 +7436,7 @@ private fun AccountRow(
     secondaryActionLabel: String? = null,
     expirationText: String? = null
 ) {
-    val focusRingColor = resolveFocusBorderColor(fallback = Pink)
+    val focusRingColor = resolveAccentColor(fallback = Pink)
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -7741,7 +7742,7 @@ private fun InputModalLegacy(
                             .focusRequester(fieldFocusRequesters[index])
                             .border(
                                 width = if (isFocused) 2.dp else 1.dp,
-                                color = if (isFocused) resolveFocusBorderColor(fallback = Pink) else Color.White.copy(alpha = 0.2f),
+                                color = if (isFocused) resolveAccentColor(fallback = Pink) else Color.White.copy(alpha = 0.2f),
                                 shape = RoundedCornerShape(8.dp)
                             )
                     )
@@ -7756,7 +7757,7 @@ private fun InputModalLegacy(
 
             // Paste button
             val isPasteFocused = focusedIndex == fields.size
-            val pasteFocusRingColor = resolveFocusBorderColor(fallback = Pink)
+            val pasteFocusRingColor = resolveAccentColor(fallback = Pink)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -7846,7 +7847,7 @@ private fun InputModalLegacy(
             // Hint text
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "Press Enter to select • Navigate with D-pad",
+                text = "Press Enter to select â€¢ Navigate with D-pad",
                 style = ArflixTypography.caption,
                 color = TextSecondary.copy(alpha = 0.5f)
             )
@@ -7924,7 +7925,7 @@ private fun InputModal(
             val targetScroll = (focusedIndex * approxFieldHeightPx).coerceAtLeast(0)
             runCatching { formScrollState.animateScrollTo(targetScroll) }
         } else if (focusedIndex >= fields.size) {
-            // Focused on paste/cancel/confirm — scroll form to end so it's not blocking
+            // Focused on paste/cancel/confirm â€” scroll form to end so it's not blocking
             runCatching { formScrollState.animateScrollTo(formScrollState.maxValue) }
         }
     }
@@ -8108,7 +8109,7 @@ private fun InputModal(
                                 )
                             }
 
-                            val regexFieldFocusColor = resolveFocusBorderColor(fallback = Pink)
+                            val regexFieldFocusColor = resolveAccentColor(fallback = Pink)
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -8432,7 +8433,7 @@ private fun SubtitlePickerModal(
                     itemsIndexed(options) { index, option ->
                         val isFocused = index == safeIndex
                         val isSelected = option.equals(selected, ignoreCase = true)
-                        val optionFocusColor = resolveFocusBorderColor(fallback = Pink)
+                        val optionFocusColor = resolveAccentColor(fallback = Pink)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
