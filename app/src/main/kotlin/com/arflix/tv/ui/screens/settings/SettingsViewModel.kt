@@ -179,7 +179,7 @@ data class SettingsUiState(
     val qualityFilters: List<QualityFilterConfig> = emptyList(),
     // Spoiler blur â€” blur unwatched episode card images and hide synopsis
     val spoilerBlurEnabled: Boolean = false,
-    // Accent color â€” user-selectable theme colour for focus rings, buttons, and selected items
+    // Accent color — user-selectable theme colour for focus rings, buttons, and selected items
     val accentColor: String = "White",
     val qualityFilterPresetLabel: String = "OFF",
     // Toast
@@ -414,7 +414,20 @@ class SettingsViewModel @Inject constructor(
             val spoilerBlurEnabled = prefs[spoilerBlurKey()] ?: false
             val showBudget = prefs[showBudgetKey()] ?: true
             val clockFormat = prefs[clockFormatKey()] ?: "24h"
-            val accentColor = prefs[com.arflix.tv.util.ACCENT_COLOR_KEY] ?: "White"
+            // One-time migration: read old "focus_border_color" key if new "accent_color" is absent
+            val OLD_FOCUS_BORDER_COLOR_KEY = stringPreferencesKey("focus_border_color")
+            val legacyColor = prefs[OLD_FOCUS_BORDER_COLOR_KEY]
+            val accentColor = prefs[com.arflix.tv.util.ACCENT_COLOR_KEY] ?: legacyColor ?: "White"
+            // Schedule async migration to copy old key → new key and delete old
+            if (legacyColor != null) {
+                viewModelScope.launch {
+                    context.settingsDataStore.edit {
+                        val old = it[OLD_FOCUS_BORDER_COLOR_KEY] ?: return@edit
+                        it[com.arflix.tv.util.ACCENT_COLOR_KEY] = old
+                        it.remove(OLD_FOCUS_BORDER_COLOR_KEY)
+                    }
+                }
+            }
             val volumeBoostDb = prefs[volumeBoostDbKey()]?.toIntOrNull()?.coerceIn(0, 15) ?: 0
             val showLoadingStats = prefs[showLoadingStatsKey()] ?: true
 
@@ -1055,8 +1068,8 @@ class SettingsViewModel @Inject constructor(
     }
 
     /**
-     * Cycle the focus border color through the rainbow palette.
-     * Order: White â†’ Red â†’ Orange â†’ Yellow â†’ Green â†’ Blue â†’ Indigo â†’ Violet â†’ White
+     * Cycle the accent color through the rainbow palette.
+     * Order: White → Red → Orange → Yellow → Green → Blue → Indigo → Violet → White
      */
     fun cycleAccentColor() {
         val colors = listOf("White", "Red", "Orange", "Yellow", "Green", "Blue", "Indigo", "Violet")
@@ -1122,7 +1135,7 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    // â”€â”€ AI Subtitles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // -- AI Subtitles ---------------------------------------------------------
 
     fun setSubtitleAiEnabled(enabled: Boolean) {
         viewModelScope.launch {
@@ -1310,7 +1323,7 @@ class SettingsViewModel @Inject constructor(
             // Prevent losing custom filters by cycling into a preset
             if (currentPreset == QualityFilterPreset.CUSTOM) {
                 _uiState.value = _uiState.value.copy(
-                    toastMessage = "Custom filters detected â€” use manual editing to modify",
+                    toastMessage = "Custom filters detected — use manual editing to modify",
                     toastType = ToastType.INFO
                 )
                 return@launch
@@ -2433,7 +2446,7 @@ class SettingsViewModel @Inject constructor(
             if (pushResult == null) {
                 _uiState.value = _uiState.value.copy(
                     isForceCloudSyncing = false,
-                    toastMessage = "Cloud sync upload timed out â€” try again",
+                    toastMessage = "Cloud sync upload timed out — try again",
                     toastType = ToastType.ERROR
                 )
                 return@launch

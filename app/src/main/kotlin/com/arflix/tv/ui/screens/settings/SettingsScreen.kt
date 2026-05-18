@@ -4518,7 +4518,7 @@ private fun GeneralSettings(
     onSubtitleAiQrClick: () -> Unit = {}
 ) {
     Column {
-        // â”€â”€ Language & Subtitles â”€â”€
+        // -- Language & Subtitles --
         Text(
             text = stringResource(R.string.language_and_subtitles),
             style = ArflixTypography.caption.copy(fontSize = 11.sp, letterSpacing = 0.8.sp),
@@ -4624,7 +4624,7 @@ private fun GeneralSettings(
             modifier = Modifier.settingsFocusSlot(9)
         )
 
-        // â”€â”€ Playback â”€â”€
+        // -- Playback --
         Spacer(modifier = Modifier.height(24.dp))
         Text(
             text = stringResource(R.string.playback),
@@ -4699,7 +4699,7 @@ private fun GeneralSettings(
             modifier = Modifier.settingsFocusSlot(16)
         )
 
-        // â”€â”€ Interface â”€â”€
+        // -- Interface --
         Spacer(modifier = Modifier.height(24.dp))
         Text(
             text = stringResource(R.string.interface_label),
@@ -4791,7 +4791,7 @@ private fun GeneralSettings(
             modifier = Modifier.settingsFocusSlot(24)
         )
 
-        // â”€â”€ Network â”€â”€
+        // -- Network --
         Spacer(modifier = Modifier.height(24.dp))
         Text(
             text = stringResource(R.string.network),
@@ -4819,7 +4819,7 @@ private fun GeneralSettings(
             modifier = Modifier.settingsFocusSlot(26)
         )
 
-        // â”€â”€ Audio â”€â”€
+        // -- Audio --
         Spacer(modifier = Modifier.height(24.dp))
         Text(
             text = stringResource(R.string.audio),
@@ -4841,7 +4841,7 @@ private fun GeneralSettings(
             modifier = Modifier.settingsFocusSlot(27)
         )
 
-        // â”€â”€ AI Subtitles â”€â”€
+        // -- AI Subtitles --
         Spacer(modifier = Modifier.height(24.dp))
         Text(
             text = stringResource(R.string.ai_subtitles_section),
@@ -4929,11 +4929,11 @@ private fun maskAiApiKey(key: String, notSetLabel: String = "Not set"): String {
     val trimmed = key.trim()
     if (trimmed.isBlank()) return notSetLabel
     val provider = when {
-        trimmed.startsWith("gsk_") -> "Groq Â· "
-        trimmed.startsWith("AIzaSy") -> "Gemini Â· "
+        trimmed.startsWith("gsk_") -> "Groq · "
+        trimmed.startsWith("AIzaSy") -> "Gemini · "
         else -> ""
     }
-    val masked = if (trimmed.length <= 4) "â€¢â€¢â€¢â€¢" else "â€¢â€¢â€¢â€¢${trimmed.takeLast(4)}"
+    val masked = if (trimmed.length <= 4) "••••" else "••••${trimmed.takeLast(4)}"
     return "$provider$masked"
 }
 
@@ -4945,8 +4945,8 @@ private fun AiModelDialog(
 ) {
     val isMobile = LocalDeviceType.current.isTouchDevice()
     val options = listOf(
-        Triple(com.arflix.tv.ui.screens.player.SubtitleAiModel.GROQ_LLAMA_70B, "Groq â€“ Llama 3.3 70B", stringResource(R.string.ai_groq_model_note)),
-        Triple(com.arflix.tv.ui.screens.player.SubtitleAiModel.GEMINI_FLASH_25, "Google â€“ Gemini 2.5 Flash", stringResource(R.string.ai_gemini_model_note))
+        Triple(com.arflix.tv.ui.screens.player.SubtitleAiModel.GROQ_LLAMA_70B, "Groq – Llama 3.3 70B", stringResource(R.string.ai_groq_model_note)),
+        Triple(com.arflix.tv.ui.screens.player.SubtitleAiModel.GEMINI_FLASH_25, "Google – Gemini 2.5 Flash", stringResource(R.string.ai_gemini_model_note))
     )
     BackHandler { onDismiss() }
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
@@ -7847,7 +7847,7 @@ private fun InputModalLegacy(
             // Hint text
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "Press Enter to select â€¢ Navigate with D-pad",
+                text = "Press Enter to select • Navigate with D-pad",
                 style = ArflixTypography.caption,
                 color = TextSecondary.copy(alpha = 0.5f)
             )
