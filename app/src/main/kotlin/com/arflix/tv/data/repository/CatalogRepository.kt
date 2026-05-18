@@ -53,6 +53,12 @@ class CatalogRepository @Inject constructor(
         MediaRepository.buildPreinstalledDefaults().associateBy { it.id }
     }
 
+    // Debounce guard: skip syncAddonCatalogs() when addon list hasn't changed.
+    // syncAddonCatalogs() iterates every addon manifest, flatMaps catalogs, and
+    // diffs against persisted state — all of which is wasted work when the
+    // installed addon list is identical between calls.
+    @Volatile private var lastSyncedAddonFingerprint: String? = null
+
     private val bundledPreinstalledCatalogIds by lazy(LazyThreadSafetyMode.NONE) {
         bundledPreinstalledCatalogsById.keys
     }
@@ -426,6 +432,11 @@ class CatalogRepository @Inject constructor(
     }
 
     suspend fun syncAddonCatalogs(addons: List<Addon>): Boolean {
+        // Debounce: skip if addon list hasn't changed since last sync.
+        val fingerprint = addons.joinToString(",") { it.id }
+        if (fingerprint == lastSyncedAddonFingerprint) return false
+        lastSyncedAddonFingerprint = fingerprint
+
         val profileId = activeProfileId()
         val hiddenAddonIds = context.settingsDataStore.data
             .first()
