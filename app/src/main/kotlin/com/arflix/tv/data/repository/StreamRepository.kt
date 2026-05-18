@@ -1049,7 +1049,7 @@ class StreamRepository @Inject constructor(
         }
 
         // Apply id-prefix filtering per-call (varies by id, cheap string ops).
-        baseCandidates.filter { addon ->
+        return baseCandidates.filter { addon ->
             if (addon.type == AddonType.CUSTOM) return@filter true
             val manifest = addon.manifest
             if (manifest != null && manifest.resources.isNotEmpty()) {
