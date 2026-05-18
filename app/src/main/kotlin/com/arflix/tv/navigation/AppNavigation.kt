@@ -170,6 +170,17 @@ fun AppNavigation(
                 onNavigateToDetails = { mediaType, mediaId, initialSeason, initialEpisode ->
                     navController.navigate(Screen.Details.createRoute(mediaType, mediaId, initialSeason, initialEpisode))
                 },
+                onNavigateToPlayer = { mediaType, mediaId, seasonNumber, episodeNumber, startPositionMs ->
+                    navController.navigate(
+                        Screen.Player.createRoute(
+                            mediaType = mediaType,
+                            mediaId = mediaId,
+                            seasonNumber = seasonNumber,
+                            episodeNumber = episodeNumber,
+                            startPositionMs = startPositionMs
+                        )
+                    )
+                },
                 onNavigateToCollection = { catalogId ->
                     navController.navigate(Screen.CollectionDetails.createRoute(catalogId))
                 },

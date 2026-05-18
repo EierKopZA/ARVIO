@@ -3811,7 +3811,8 @@ data class ContinueWatchingItem(
             totalEpisodes = totalEpisodeCount,
             watchedEpisodes = watchedEpisodeCount,
             timeRemainingLabel = timeRemainingLabel,
-            showPlaybackProgress = showPlaybackProgress
+            showPlaybackProgress = showPlaybackProgress,
+            resumePositionSeconds = resumeSeconds
         )
     }
 }

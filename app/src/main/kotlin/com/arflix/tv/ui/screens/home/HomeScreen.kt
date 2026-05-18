@@ -536,6 +536,7 @@ fun HomeScreen(
     preloadedLogoCache: Map<String, String> = emptyMap(),
     currentProfile: com.arflix.tv.data.model.Profile? = null,
     onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit = { _, _, _, _ -> },
+    onNavigateToPlayer: (MediaType, Int, Int?, Int?, Long) -> Unit = { _, _, _, _, _ -> },
     onNavigateToCollection: (String) -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
@@ -1102,6 +1103,7 @@ fun HomeScreen(
             hasUpdateBadge = uiState.hasUpdateBadge,
             onItemFocusedPrefetch = {},
             onNavigateToDetails = onNavigateToDetails,
+            onNavigateToPlayer = onNavigateToPlayer,
             onNavigateToCollection = onNavigateToCollection,
             onNavigateToSearch = onNavigateToSearch,
             onNavigateToWatchlist = onNavigateToWatchlist,
@@ -2202,6 +2204,7 @@ private fun HomeInputLayer(
     hasUpdateBadge: Boolean = false,
     onItemFocusedPrefetch: (MediaItem) -> Unit = {},
     onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit,
+    onNavigateToPlayer: (MediaType, Int, Int?, Int?, Long) -> Unit = { _, _, _, _, _ -> },
     onNavigateToCollection: (String) -> Unit,
     onNavigateToSearch: () -> Unit,
     onNavigateToWatchlist: () -> Unit,
@@ -2472,10 +2475,10 @@ private fun HomeInputLayer(
                                     focusState.currentItemIndex
                                 )
                                 currentItem?.takeIf { isActionableHomeItem(it) }?.let { item ->
+                                    val currentCategory = categories.getOrNull(focusState.currentRowIndex)
+                                    val isContinue = currentCategory?.id == "continue_watching"
                                     if (holdMs >= 500L) {
                                         // Long-press: open context menu
-                                        val currentCategory = categories.getOrNull(focusState.currentRowIndex)
-                                        val isContinue = currentCategory?.id == "continue_watching"
                                         onOpenContextMenu(item, isContinue)
                                     } else {
                                         // Short press: navigate. Must check collection:
@@ -2491,6 +2494,15 @@ private fun HomeInputLayer(
                                             onNavigateToTv(iptvId, getIptvStreamUrl(item.id))
                                         } else if (collectionId != null) {
                                             onNavigateToCollection(collectionId)
+                                        } else if (isContinue && item.resumePositionSeconds > 0L) {
+                                            // Continue Watching D-pad: navigate directly to Player
+                                            onNavigateToPlayer(
+                                                item.mediaType,
+                                                item.id,
+                                                item.nextEpisode?.seasonNumber,
+                                                item.nextEpisode?.episodeNumber,
+                                                item.resumePositionSeconds * 1000L // seconds → millis
+                                            )
                                         } else {
                                             onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber)
                                         }
@@ -2549,6 +2561,7 @@ private fun HomeInputLayer(
             onPlay = onPlay,
             onDetails = onDetails,
             onNavigateToDetails = onNavigateToDetails,
+            onNavigateToPlayer = onNavigateToPlayer,
             onItemClick = { item ->
                 if (!isActionableHomeItem(item)) {
                     return@HomeRowsLayer
@@ -2559,6 +2572,15 @@ private fun HomeInputLayer(
                     onNavigateToTv(iptvId, getIptvStreamUrl(item.id))
                 } else if (collectionId != null) {
                     onNavigateToCollection(collectionId)
+                } else if (item.resumePositionSeconds > 0L) {
+                    // Continue Watching: navigate directly to Player with resume position
+                    onNavigateToPlayer(
+                        item.mediaType,
+                        item.id,
+                        item.nextEpisode?.seasonNumber,
+                        item.nextEpisode?.episodeNumber,
+                        item.resumePositionSeconds * 1000L // seconds → millis
+                    )
                 } else {
                     onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber)
                 }
@@ -2584,6 +2606,7 @@ private fun HomeRowsLayer(
     onPlay: () -> Unit = {},
     onDetails: () -> Unit = {},
     onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit = { _, _, _, _ -> },
+    onNavigateToPlayer: (MediaType, Int, Int?, Int?, Long) -> Unit = { _, _, _, _, _ -> },
     onItemClick: (MediaItem) -> Unit,
     onItemLongClick: ((MediaItem, Boolean) -> Unit)? = null
 ) {
@@ -2594,6 +2617,7 @@ private fun HomeRowsLayer(
             contentStartPadding = contentStartPadding,
             usePosterCards = usePosterCards,
             onNavigateToDetails = onNavigateToDetails,
+            onNavigateToPlayer = onNavigateToPlayer,
             onItemClick = onItemClick,
             onItemLongClick = onItemLongClick
         )
@@ -2607,7 +2631,8 @@ private fun HomeRowsLayer(
             fastScrollThresholdMs = fastScrollThresholdMs,
             usePosterCards = usePosterCards,
             onItemFocusedPrefetch = onItemFocusedPrefetch,
-            onItemClick = onItemClick
+            onItemClick = onItemClick,
+            onNavigateToPlayer = onNavigateToPlayer
         )
     }
 }
@@ -2620,6 +2645,7 @@ private fun MobileHomeRowsLayer(
     contentStartPadding: androidx.compose.ui.unit.Dp,
     usePosterCards: Boolean,
     onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit = { _, _, _, _ -> },
+    onNavigateToPlayer: (MediaType, Int, Int?, Int?, Long) -> Unit = { _, _, _, _, _ -> },
     onItemClick: (MediaItem) -> Unit,
     onItemLongClick: ((MediaItem, Boolean) -> Unit)? = null
 ) {
@@ -2754,7 +2780,8 @@ private fun TvHomeRowsLayer(
     fastScrollThresholdMs: Long,
     usePosterCards: Boolean,
     onItemFocusedPrefetch: (MediaItem) -> Unit = {},
-    onItemClick: (MediaItem) -> Unit
+    onItemClick: (MediaItem) -> Unit,
+    onNavigateToPlayer: (MediaType, Int, Int?, Int?, Long) -> Unit = { _, _, _, _, _ -> }
 ) {
     // ── Focus-row stabilizer ──
     // Track the focused row by its category ID (stable) rather than integer
@@ -2925,7 +2952,8 @@ private fun TvHomeRowsLayer(
                                 focusState.currentItemIndex = itemIdx
                                 focusState.isSidebarFocused = false
                                 focusState.lastNavEventTime = SystemClock.elapsedRealtime()
-                            }
+                            },
+                            onNavigateToPlayer = onNavigateToPlayer
                         )
                     }
                 }
@@ -3192,7 +3220,8 @@ private fun ContentRow(
     isFastScrolling: Boolean,
     useViewportFocusOverlay: Boolean = false,
     onItemClick: (MediaItem) -> Unit,
-    onItemFocused: (MediaItem, Int) -> Unit
+    onItemFocused: (MediaItem, Int) -> Unit,
+    onNavigateToPlayer: (MediaType, Int, Int?, Int?, Long) -> Unit = { _, _, _, _, _ -> }
 ) {
     val isCollectionRow = category.id.startsWith("collection_row_")
     val rowState = rememberLazyListState()
@@ -3358,8 +3387,21 @@ private fun ContentRow(
                 val onCardFocused = remember(item, index) {
                     { latestOnItemFocused.value(item, index) }
                 }
-                val onCardClick = remember(item) {
-                    { latestOnItemClick.value(item) }
+                val onCardClick = remember(item, isContinueWatching) {
+                    {
+                        if (isContinueWatching && item.resumePositionSeconds > 0L) {
+                            // CW item with resume data: navigate directly to Player
+                            onNavigateToPlayer(
+                                item.mediaType,
+                                item.id,
+                                item.nextEpisode?.seasonNumber,
+                                item.nextEpisode?.episodeNumber,
+                                item.resumePositionSeconds * 1000L // seconds → millis
+                            )
+                        } else {
+                            latestOnItemClick.value(item)
+                        }
+                    }
                 }
                 if (isRanked && index < 10) {
                     // Top 10 rows should use the SAME card sizing as every other row.

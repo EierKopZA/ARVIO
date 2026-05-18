@@ -55,6 +55,9 @@ data class MediaItem(
     val timeRemainingLabel: String? = null,
     // Continue Watching: true only when progress represents current movie/episode playback.
     val showPlaybackProgress: Boolean = true,
+    // Continue Watching: resume position in seconds for direct playback navigation.
+    // 0L means no resume position (first-time play or not a CW item).
+    val resumePositionSeconds: Long = 0L,
 ) : Serializable
 
 enum class MediaType {
