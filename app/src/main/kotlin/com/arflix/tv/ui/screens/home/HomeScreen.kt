@@ -3387,11 +3387,12 @@ private fun ContentRow(
                 val onCardFocused = remember(item, index) {
                     { latestOnItemFocused.value(item, index) }
                 }
+                val latestOnNavigateToPlayer = rememberUpdatedState(onNavigateToPlayer)
                 val onCardClick = remember(item, isContinueWatching) {
                     {
                         if (isContinueWatching && item.resumePositionSeconds > 0L) {
                             // CW item with resume data: navigate directly to Player
-                            onNavigateToPlayer(
+                            latestOnNavigateToPlayer.value(
                                 item.mediaType,
                                 item.id,
                                 item.nextEpisode?.seasonNumber,
