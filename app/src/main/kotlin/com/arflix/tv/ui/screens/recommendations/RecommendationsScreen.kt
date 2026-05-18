@@ -101,7 +101,7 @@ class RecommendationsViewModel @Inject constructor(
                 onFailure = { throwable ->
                     RecommendationsUiState(
                         isLoading = false,
-                        error = throwable.message ?: stringResource(R.string.recommendations_network_error)
+                        error = throwable.message ?: "Unable to load recommendations"
                     )
                 }
             )
