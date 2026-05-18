@@ -1,4 +1,4 @@
-﻿package com.arflix.tv.ui.screens.settings
+package com.arflix.tv.ui.screens.settings
 
 import android.content.Context
 import android.graphics.Bitmap
