@@ -5,12 +5,12 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -18,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -25,6 +26,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -33,9 +35,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.foundation.lazy.grid.TvGridCells
+import androidx.tv.foundation.lazy.grid.TvGridItemSpan
 import androidx.tv.foundation.lazy.grid.TvLazyVerticalGrid
 import androidx.tv.foundation.lazy.grid.itemsIndexed
+import androidx.tv.material3.Button
 import androidx.tv.material3.Text
+import com.arflix.tv.R
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.repository.MediaRepository
@@ -53,9 +58,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/**
+ * UI state for the Recommendations screen.
+ * @param isEmptyResult true when the API returned successfully but had zero results
+ */
 data class RecommendationsUiState(
     val items: List<MediaItem> = emptyList(),
     val isLoading: Boolean = true,
+    val isEmptyResult: Boolean = false,
     val error: String? = null
 )
 
@@ -72,20 +82,29 @@ class RecommendationsViewModel @Inject constructor(
             _uiState.value = RecommendationsUiState(isLoading = true)
             val result = runCatching {
                 mediaRepository.getSimilar(mediaType, mediaId)
-            }.getOrDefault(emptyList())
-
-            _uiState.value = if (result.isEmpty()) {
-                RecommendationsUiState(
-                    items = emptyList(),
-                    isLoading = false,
-                    error = "No recommendations found for this title."
-                )
-            } else {
-                RecommendationsUiState(
-                    items = result,
-                    isLoading = false
-                )
             }
+
+            _uiState.value = result.fold(
+                onSuccess = { items ->
+                    if (items.isEmpty()) {
+                        RecommendationsUiState(
+                            isLoading = false,
+                            isEmptyResult = true
+                        )
+                    } else {
+                        RecommendationsUiState(
+                            items = items,
+                            isLoading = false
+                        )
+                    }
+                },
+                onFailure = { throwable ->
+                    RecommendationsUiState(
+                        isLoading = false,
+                        error = throwable.message ?: stringResource(R.string.recommendations_network_error)
+                    )
+                }
+            )
         }
     }
 
@@ -133,10 +152,9 @@ fun RecommendationsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(appBackgroundDark())
+            // Key.Escape for keyboard support — BackHandler handles system/remote back
             .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown &&
-                    (event.key == Key.Back || event.key == Key.Escape)
-                ) {
+                if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
                     onBack()
                     true
                 } else {
@@ -149,7 +167,7 @@ fun RecommendationsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    androidx.compose.ui.graphics.Brush.radialGradient(
+                    Brush.radialGradient(
                         colors = listOf(
                             Color(0xFF2F9C95).copy(alpha = 0.25f),
                             Color.Transparent
@@ -185,9 +203,9 @@ fun RecommendationsScreen(
                 }
             }
 
-            // Title overlay
+            // Title overlay during loading
             Text(
-                text = "More Like $mediaTitle",
+                text = stringResource(R.string.more_like, mediaTitle),
                 style = ArflixTypography.sectionTitle.copy(
                     fontSize = 22.sp,
                     fontWeight = FontWeight.Bold
@@ -198,26 +216,38 @@ fun RecommendationsScreen(
                     .padding(start = 42.dp, top = 18.dp, end = 42.dp)
             )
         } else if (uiState.error != null) {
-            // Error state
+            // Network / API error state — show retry button
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                androidx.compose.foundation.layout.Column(
+                Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Text(
-                        text = uiState.error ?: "Something went wrong",
+                        text = uiState.error ?: stringResource(R.string.recommendations_network_error),
                         style = ArflixTypography.body,
                         color = TextSecondary
                     )
-                    androidx.tv.material3.Button(
+                    Button(
                         onClick = { viewModel.retry(mediaType, mediaId) }
                     ) {
-                        Text(androidx.compose.ui.res.stringResource(com.arflix.tv.R.string.retry))
+                        Text(stringResource(R.string.retry))
                     }
                 }
+            }
+        } else if (uiState.isEmptyResult) {
+            // Graceful empty state — API returned successfully but no recommendations exist
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = stringResource(R.string.no_recommendations_found),
+                    style = ArflixTypography.body,
+                    color = TextSecondary
+                )
             }
         } else {
             // Recommendations grid
@@ -237,11 +267,11 @@ fun RecommendationsScreen(
                 horizontalArrangement = Arrangement.spacedBy(18.dp)
             ) {
                 item(
-                    span = { androidx.tv.foundation.lazy.grid.TvGridItemSpan(maxLineSpan) },
+                    span = { TvGridItemSpan(maxLineSpan) },
                     contentType = "header"
                 ) {
                     Text(
-                        text = "More Like $mediaTitle",
+                        text = stringResource(R.string.more_like, mediaTitle),
                         style = ArflixTypography.sectionTitle.copy(
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Bold

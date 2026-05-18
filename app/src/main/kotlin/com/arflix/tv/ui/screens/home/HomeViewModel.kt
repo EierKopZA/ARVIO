@@ -1635,7 +1635,7 @@ class HomeViewModel @Inject constructor(
         if (items.isEmpty()) return
         val watchHistoryCategory = Category(
             id = "watch_history",
-            title = "Your Watch History",
+            title = context.getString(com.arflix.tv.R.string.your_watch_history),
             items = items
         )
         withContext(Dispatchers.Main) {
@@ -2040,7 +2040,7 @@ class HomeViewModel @Inject constructor(
                 if (watchHistoryItems.isNotEmpty()) {
                     val watchHistoryCat = Category(
                         id = "watch_history",
-                        title = "Your Watch History",
+                        title = context.getString(com.arflix.tv.R.string.your_watch_history),
                         items = watchHistoryItems
                     )
                     val whIdx = categories.indexOfFirst { it.id == "watch_history" }
