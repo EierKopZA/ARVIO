@@ -72,6 +72,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.semantics.Role
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberUpdatedState
@@ -1473,14 +1474,18 @@ private fun DetailsContent(
                                     val currentSeasonProgress = if (season == currentSeason && episodes.isNotEmpty()) {
                                         Pair(episodes.count { it.isWatched }, episodes.size)
                                     } else null
+                                    val seasonClick = remember(index, onSeasonClick) { { onSeasonClick(index) } }
+                                    val seasonLongClick = remember(index, onSeasonLongClick) {
+                                        onSeasonLongClick?.let { callback -> { callback(index) } }
+                                    }
                                     SeasonButton(
                                         season = season,
                                         isSelected = season == currentSeason,
                                         isFocused = false,
                                         watchedCount = currentSeasonProgress?.first ?: progress?.first ?: 0,
                                         totalCount = currentSeasonProgress?.second ?: progress?.second ?: 0,
-                                        onClick = { onSeasonClick(index) },
-                                        onLongClick = onSeasonLongClick?.let { callback -> { callback(index) } }
+                                        onClick = seasonClick,
+                                        onLongClick = seasonLongClick
                                     )
                                 }
                             }
@@ -3490,7 +3495,7 @@ private fun isFutureEpisodeAirDate(rawDate: String): Boolean {
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun SeasonButton(
     season: Int,
@@ -3515,12 +3520,21 @@ private fun SeasonButton(
 
     val isFullyWatched = totalCount > 0 && watchedCount >= totalCount
 
+    val clickModifier = if (onLongClick != null) {
+        @OptIn(ExperimentalFoundationApi::class)
+        Modifier.combinedClickable(
+            onClick = onClick,
+            onLongClick = onLongClick,
+            role = Role.Button,
+            onClickLabel = "Select season $season",
+            onLongClickLabel = "Show season options"
+        )
+    } else {
+        Modifier.clickable(onClick = onClick)
+    }
+
     Row(
-        modifier = Modifier
-            .combinedClickable(
-                onClick = { onClick() },
-                onLongClick = onLongClick
-            )
+        modifier = clickModifier
             .background(backgroundColor, shape)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
